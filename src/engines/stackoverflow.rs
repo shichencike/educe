@@ -3,7 +3,7 @@
 use async_trait::async_trait;
 
 use crate::engines::common::{clip, encode_query_pct};
-use crate::engines::{Engine, EngineContext};
+use crate::engines::{Engine, EngineContext, EngineError};
 use std::borrow::Cow;
 
 use crate::models::{Category, EngineMeta, SearchResult};
@@ -28,7 +28,7 @@ impl Engine for StackOverflow {
         ctx: &EngineContext,
         query: &str,
         max: usize,
-    ) -> Result<Vec<SearchResult>, String> {
+    ) -> Result<Vec<SearchResult>, EngineError> {
         let pagesize = max.min(50);
         let url = format!(
             "https://api.stackexchange.com/2.3/search/advanced?order=desc&sort=relevance&q={}&site=stackoverflow&pagesize={}",
@@ -39,11 +39,11 @@ impl Engine for StackOverflow {
             .http
             .get("stackoverflow", &url)
             .await
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| EngineError::Http(e.to_string()))?;
         let v: serde_json::Value = resp
             .json()
             .await
-            .map_err(|e| format!("解析 StackExchange 响应失败: {e}"))?;
+            .map_err(|e| EngineError::Parse(format!("解析 StackExchange 响应失败: {e}")))?;
 
         let mut out = Vec::new();
         if let Some(items) = v.get("items").and_then(|x| x.as_array()) {
@@ -58,7 +58,10 @@ impl Engine for StackOverflow {
                     continue;
                 };
                 let views = it.get("view_count").and_then(|x| x.as_i64()).unwrap_or(0);
-                let answered = it.get("is_answered").and_then(|x| x.as_bool()).unwrap_or(false);
+                let answered = it
+                    .get("is_answered")
+                    .and_then(|x| x.as_bool())
+                    .unwrap_or(false);
                 let mut tags: Vec<&str> = it
                     .get("tags")
                     .and_then(|x| x.as_array())
@@ -69,7 +72,11 @@ impl Engine for StackOverflow {
                 }
                 let snippet = format!(
                     "👁 {views} · {}{}",
-                    if answered { "✔ 已解答" } else { "未解答" },
+                    if answered {
+                        "✔ 已解答"
+                    } else {
+                        "未解答"
+                    },
                     if tags.is_empty() {
                         String::new()
                     } else {
@@ -87,7 +94,9 @@ impl Engine for StackOverflow {
         }
 
         if out.is_empty() {
-            Err("Stack Overflow 无结果或配额用尽".into())
+            Err(EngineError::Blocked(
+                "Stack Overflow 无结果或配额用尽".into(),
+            ))
         } else {
             Ok(out)
         }

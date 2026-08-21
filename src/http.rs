@@ -135,6 +135,7 @@ pub struct HttpClient {
 impl HttpClient {
     /// 依据代理配置构建客户端池。
     pub fn new(cfg: &ProxyConfig) -> Result<Self> {
+        // 公共连接调优：空闲连接复用、keepalive、TCP 保活、超时分级（连接 10s / 整体 20s）
         let builder = || {
             reqwest::Client::builder()
                 .user_agent("Mozilla/5.0")
@@ -143,21 +144,31 @@ impl HttpClient {
                 .redirect(reqwest::redirect::Policy::limited(8))
                 // 维持会话 cookie（百度/搜狗/360 等需要）
                 .cookie_store(true)
-                .pool_max_idle_per_host(2)
+                // 每主机最多保留 8 条空闲连接，多源并发时复用
+                .pool_max_idle_per_host(8)
+                .pool_idle_timeout(Duration::from_secs(60))
+                .http2_keep_alive_interval(Duration::from_secs(30))
+                .http2_keep_alive_timeout(Duration::from_secs(10))
+                .tcp_keepalive(Duration::from_secs(30))
                 .build()
         };
 
         let mut clients = Vec::new();
         if cfg.enabled && !cfg.urls.is_empty() {
             for url in &cfg.urls {
-                let proxy = reqwest::Proxy::all(url)
-                    .with_context(|| format!("非法代理地址: {url}"))?;
+                let proxy =
+                    reqwest::Proxy::all(url).with_context(|| format!("非法代理地址: {url}"))?;
                 let c = reqwest::Client::builder()
                     .proxy(proxy)
                     .timeout(Duration::from_secs(20))
                     .connect_timeout(Duration::from_secs(10))
                     .redirect(reqwest::redirect::Policy::limited(8))
                     .cookie_store(true)
+                    .pool_max_idle_per_host(8)
+                    .pool_idle_timeout(Duration::from_secs(60))
+                    .http2_keep_alive_interval(Duration::from_secs(30))
+                    .http2_keep_alive_timeout(Duration::from_secs(10))
+                    .tcp_keepalive(Duration::from_secs(30))
                     .build()
                     .context("构建代理客户端失败")?;
                 clients.push(c);
@@ -250,12 +261,8 @@ impl HttpClient {
     pub async fn get_text(&self, engine: &str, url: &str) -> Result<String> {
         let resp = self.get(engine, url).await?;
         if !resp.status().is_success() {
-            return Err(anyhow!(
-                "HTTP {}: {}",
-                resp.status().as_u16(),
-                url
-            ));
+            return Err(anyhow!("HTTP {}: {}", resp.status().as_u16(), url));
         }
-        Ok(resp.text().await.context("读取响应体失败")?)
+        resp.text().await.context("读取响应体失败")
     }
 }

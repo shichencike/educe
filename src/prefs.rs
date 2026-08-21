@@ -170,7 +170,67 @@ pub fn extract_cookie<'a>(header: Option<&'a str>, name: &str) -> Option<&'a str
 
 /// 构造 Set-Cookie 响应头（删除时传空值 + Max-Age=0）。
 pub fn set_cookie_header(value: &str, max_age: i64) -> String {
-    format!(
-        "{PREFS_COOKIE}={value}; Path=/; HttpOnly; SameSite=Lax; Max-Age={max_age}"
-    )
+    format!("{PREFS_COOKIE}={value}; Path=/; HttpOnly; SameSite=Lax; Max-Age={max_age}")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cookie_roundtrip_preserves_fields() {
+        let prefs = UserPrefs {
+            lang: "zh".into(),
+            theme: "light".into(),
+            results_per_page: 30,
+            open_in_new_tab: false,
+            timeout_ms: 5000,
+            engines: HashMap::from([(
+                "bing".into(),
+                EnginePref {
+                    enabled: false,
+                    weight: Some(1.5),
+                },
+            )]),
+        };
+        let cookie = prefs.to_cookie();
+        let back = UserPrefs::from_cookie(&cookie).expect("cookie 应可解码");
+        assert_eq!(back.theme, "light");
+        assert_eq!(back.results_per_page, 30);
+        assert!(!back.open_in_new_tab);
+        assert_eq!(back.timeout_ms, 5000);
+        assert_eq!(back.engines["bing"].enabled, false);
+        assert_eq!(back.engines["bing"].weight, Some(1.5));
+    }
+
+    #[test]
+    fn from_cookie_returns_none_on_garbage() {
+        assert!(UserPrefs::from_cookie("not-json%%%").is_none());
+    }
+
+    #[test]
+    fn merge_from_partial_overrides_only_set_fields() {
+        let mut base = UserPrefs::default();
+        let patch = UserPrefs {
+            theme: "light".into(),
+            results_per_page: 10,
+            ..UserPrefs::default()
+        };
+        base.merge_from(&patch);
+        assert_eq!(base.theme, "light");
+        assert_eq!(base.results_per_page, 10);
+        assert_eq!(base.lang, "zh"); // 未覆盖的字段保留
+        assert_eq!(base.timeout_ms, 0);
+    }
+
+    #[test]
+    fn extract_cookie_finds_value() {
+        let header = "a=1; educe_prefs=abc%20def; b=2";
+        assert_eq!(
+            extract_cookie(Some(header), "educe_prefs"),
+            Some("abc%20def")
+        );
+        assert_eq!(extract_cookie(Some(header), "missing"), None);
+        assert_eq!(extract_cookie(None, "x"), None);
+    }
 }

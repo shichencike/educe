@@ -7,7 +7,7 @@ use async_trait::async_trait;
 use scraper::{Html, Selector};
 
 use crate::engines::common::{clean_text, clip, encode_query_pct};
-use crate::engines::{Engine, EngineContext};
+use crate::engines::{Engine, EngineContext, EngineError};
 use std::borrow::Cow;
 
 use crate::models::{Category, EngineMeta, SearchResult};
@@ -73,7 +73,7 @@ impl Engine for Google {
         ctx: &EngineContext,
         query: &str,
         max: usize,
-    ) -> Result<Vec<SearchResult>, String> {
+    ) -> Result<Vec<SearchResult>, EngineError> {
         let num = max.min(100);
         let url = format!(
             "https://www.google.com/search?q={}&num={}&hl=zh-CN&gl=us",
@@ -87,21 +87,25 @@ impl Engine for Google {
             .get_with_headers(
                 "google",
                 &url,
-                &[
-                    ("Cookie", "CONSENT=YES+; SOCS=CAISHAgBEhJnd3NfMjAyNDA4MDEtMF9SQzIaAmNuIAEaBgiA_LyaBg"),
-                ],
+                &[(
+                    "Cookie",
+                    "CONSENT=YES+; SOCS=CAISHAgBEhJnd3NfMjAyNDA4MDEtMF9SQzIaAmNuIAEaBgiA_LyaBg",
+                )],
             )
             .await
-            .map_err(|e| e.to_string())?
+            .map_err(|e| EngineError::Http(e.to_string()))?
             .text()
             .await
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| EngineError::Http(e.to_string()))?;
 
         let parsed = self.parse_html(&html);
         if parsed.is_empty() {
             // 尝试 2：JS 渲染桥（需启用 js_render 并配置 sources 含 google）
             if let Some(renderer) = &ctx.js_render {
-                let rendered = renderer.render(&url).await.map_err(|e| e.to_string())?;
+                let rendered = renderer
+                    .render(&url)
+                    .await
+                    .map_err(|e| EngineError::Http(e.to_string()))?;
                 let parsed2 = self.parse_html(&rendered);
                 if !parsed2.is_empty() {
                     return Ok(parsed2
@@ -114,17 +118,37 @@ impl Engine for Google {
                         .collect());
                 }
             }
-            return Err("无结果（Google 反爬较强，建议启用 JS 渲染桥）".into());
+            return Err(EngineError::Blocked(
+                "无结果（Google 反爬较强，建议启用 JS 渲染桥）".into(),
+            ));
         }
 
         let results: Vec<SearchResult> = parsed
             .into_iter()
             .take(max)
             .enumerate()
-            .map(|(i, (title, url, snippet))| {
-                SearchResult::new(title, url, snippet, "google", i)
-            })
+            .map(|(i, (title, url, snippet))| SearchResult::new(title, url, snippet, "google", i))
             .collect();
         Ok(results)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_google_results() {
+        let html = r#"<html><body>
+            <div class="g"><a href="https://x.com/1"><h3>标题一</h3></a><div class="VwiC3b">摘要一</div></div>
+            <div class="g"><a href="https://x.com/2"><h3>标题二</h3></a></div>
+        </body></html>"#;
+        let g = Google;
+        let out = g.parse_html(html);
+        assert_eq!(out.len(), 2);
+        assert_eq!(out[0].0, "标题一");
+        assert_eq!(out[0].1, "https://x.com/1");
+        assert_eq!(out[0].2, "摘要一");
+        assert_eq!(out[1].0, "标题二");
     }
 }

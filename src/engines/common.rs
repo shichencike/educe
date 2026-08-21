@@ -41,13 +41,29 @@ pub fn normalize_url(raw: &str) -> String {
     let Ok(mut u) = Url::parse(raw) else {
         return raw.to_string();
     };
+    let drop: &[&str] = &[
+        "utm_source",
+        "utm_medium",
+        "utm_campaign",
+        "utm_term",
+        "utm_content",
+        "fbclid",
+        "gclid",
+        "yclid",
+        "ref",
+        "spm",
+        "share_source",
+        "share_medium",
+    ];
+    // 快速路径：无片段、无尾斜杠、无跟踪参数时直接返回原始串，避免重建
+    let path = u.path();
+    let has_tracking = u.query_pairs().any(|(k, _)| drop.contains(&k.as_ref()));
+    if !has_tracking && u.fragment().is_none() && !(path.len() > 1 && path.ends_with('/')) {
+        return raw.to_string();
+    }
     // 去掉片段
     u.set_fragment(None);
     // 去掉常见跟踪参数
-    let drop: &[&str] = &[
-        "utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content",
-        "fbclid", "gclid", "yclid", "ref", "spm", "share_source", "share_medium",
-    ];
     let pairs: Vec<(String, String)> = {
         let mut kept = Vec::new();
         for (k, v) in u.query_pairs() {
@@ -59,7 +75,8 @@ pub fn normalize_url(raw: &str) -> String {
     };
     u.set_query(None);
     if !pairs.is_empty() {
-        u.query_pairs_mut().extend_pairs(pairs.iter().map(|(k, v)| (k.as_str(), v.as_str())));
+        u.query_pairs_mut()
+            .extend_pairs(pairs.iter().map(|(k, v)| (k.as_str(), v.as_str())));
     }
     // 去掉末尾斜杠（保留根路径 "/"）
     let path = u.path().to_string();
@@ -141,6 +158,78 @@ fn is_junk_url(href: &str) -> bool {
 }
 
 fn is_junk_title(t: &str) -> bool {
-    const JUNK: &[&str] = &["首页", "登录", "注册", "更多", "上一页", "下一页", "打开App", "下载", "意见反馈"];
+    const JUNK: &[&str] = &[
+        "首页",
+        "登录",
+        "注册",
+        "更多",
+        "上一页",
+        "下一页",
+        "打开App",
+        "下载",
+        "意见反馈",
+    ];
     JUNK.contains(&t) || t.chars().all(|c| c.is_ascii_digit())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn clean_text_collapses_whitespace() {
+        assert_eq!(clean_text("  a\n\t b  c "), "a b c");
+    }
+
+    #[test]
+    fn clip_truncates_with_ellipsis() {
+        let s = clip("一二三四五六七八九十", 5);
+        assert_eq!(s.chars().count(), 6); // 5 字符 + 省略号
+        assert!(s.ends_with('…'));
+        assert_eq!(clip("short", 100), "short");
+    }
+
+    #[test]
+    fn absolute_url_resolves_relative() {
+        assert_eq!(
+            absolute_url("https://example.com/a/b", "../c").as_deref(),
+            Some("https://example.com/c")
+        );
+        assert_eq!(
+            absolute_url("https://example.com/a/", "/root").as_deref(),
+            Some("https://example.com/root")
+        );
+    }
+
+    #[test]
+    fn strip_html_removes_tags() {
+        assert_eq!(strip_html("<p>Hello <b>world</b></p>"), "Hello world");
+    }
+
+    #[test]
+    fn encode_query_pct_encodes_space_and_unicode() {
+        assert_eq!(encode_query_pct("a b"), "a%20b");
+        assert!(encode_query_pct("中").starts_with('%'));
+    }
+
+    #[test]
+    fn normalize_url_strips_tracking_and_fragment() {
+        assert_eq!(
+            normalize_url("https://x.com/p?utm_source=1&id=2#top"),
+            "https://x.com/p?id=2"
+        );
+    }
+
+    #[test]
+    fn normalize_url_keeps_clean_url_unchanged() {
+        let u = "https://x.com/path?q=1";
+        assert_eq!(normalize_url(u), u);
+    }
+
+    #[test]
+    fn normalize_url_strips_trailing_slash() {
+        assert_eq!(normalize_url("https://x.com/a/b/"), "https://x.com/a/b");
+        // 根路径保留
+        assert_eq!(normalize_url("https://x.com/"), "https://x.com/");
+    }
 }

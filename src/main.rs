@@ -38,8 +38,8 @@ fn main() -> anyhow::Result<()> {
             init_tracing(&cfg.logging.level);
             let agg = Aggregator::new(cfg)?;
             println!(
-                "{:<14} {:<12} {:<10} {:<7} {:<5} {}",
-                "ID", "名称", "分类", "需要JS", "启用", "权重"
+                "{:<14} {:<12} {:<10} {:<7} {:<5} 权重",
+                "ID", "名称", "分类", "需要JS", "启用"
             );
             for info in agg.source_infos() {
                 println!(
@@ -82,7 +82,10 @@ fn main() -> anyhow::Result<()> {
 
             println!(
                 "查询「{}」：共 {} 条结果，耗时 {}ms，来源 {} 个\n",
-                resp.query, resp.total, resp.time_ms, resp.engines.len()
+                resp.query,
+                resp.total,
+                resp.time_ms,
+                resp.engines.len()
             );
             for (i, r) in resp.results.iter().enumerate() {
                 println!(
@@ -114,6 +117,6 @@ fn main() -> anyhow::Result<()> {
 /// 依据配置初始化 tracing（可用 RUST_LOG 环境变量覆盖）。
 fn init_tracing(level: &str) {
     let filter = tracing_subscriber::EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new(level.to_string()));
+        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new(level));
     tracing_subscriber::fmt().with_env_filter(filter).init();
 }

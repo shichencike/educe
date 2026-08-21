@@ -4,7 +4,7 @@
 use async_trait::async_trait;
 
 use crate::engines::common::{clip, encode_query_pct, strip_html};
-use crate::engines::{Engine, EngineContext};
+use crate::engines::{Engine, EngineContext, EngineError};
 use std::borrow::Cow;
 
 use crate::models::{Category, EngineMeta, SearchResult};
@@ -29,7 +29,7 @@ impl Engine for Wikipedia {
         ctx: &EngineContext,
         query: &str,
         max: usize,
-    ) -> Result<Vec<SearchResult>, String> {
+    ) -> Result<Vec<SearchResult>, EngineError> {
         let srlimit = max.min(50);
         let url = format!(
             "https://zh.wikipedia.org/w/api.php?action=query&list=search&srsearch={}&srlimit={}&format=json&utf8=1",
@@ -40,11 +40,11 @@ impl Engine for Wikipedia {
             .http
             .get("wikipedia", &url)
             .await
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| EngineError::Http(e.to_string()))?;
         let v: serde_json::Value = resp
             .json()
             .await
-            .map_err(|e| format!("解析维基百科响应失败: {e}"))?;
+            .map_err(|e| EngineError::Parse(format!("解析维基百科响应失败: {e}")))?;
 
         let mut out = Vec::new();
         if let Some(items) = v.pointer("/query/search").and_then(|x| x.as_array()) {
@@ -81,7 +81,7 @@ impl Engine for Wikipedia {
         }
 
         if out.is_empty() {
-            Err("维基百科无结果".into())
+            Err(EngineError::Parse("维基百科无结果".into()))
         } else {
             Ok(out)
         }

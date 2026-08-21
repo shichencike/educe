@@ -6,7 +6,7 @@ use async_trait::async_trait;
 use scraper::{Html, Selector};
 
 use crate::engines::common::{clean_text, clip, encode_query_pct, generic_extract};
-use crate::engines::{Engine, EngineContext};
+use crate::engines::{Engine, EngineContext, EngineError};
 use std::borrow::Cow;
 
 use crate::models::{Category, EngineMeta, SearchResult};
@@ -50,7 +50,13 @@ impl Wechat {
                 .next()
                 .map(|s| clip(&s.text().collect::<String>(), 300))
                 .unwrap_or_default();
-            out.push(SearchResult::new(title, href.to_string(), snippet, "wechat", out.len()));
+            out.push(SearchResult::new(
+                title,
+                href.to_string(),
+                snippet,
+                "wechat",
+                out.len(),
+            ));
         }
         out
     }
@@ -67,23 +73,30 @@ impl Engine for Wechat {
         ctx: &EngineContext,
         query: &str,
         max: usize,
-    ) -> Result<Vec<SearchResult>, String> {
-        let renderer = ctx
-            .js_render
-            .as_ref()
-            .ok_or("微信公众号需要 JS 渲染桥（配置 js_render.enabled=true 且 sources 含 wechat）")?;
+    ) -> Result<Vec<SearchResult>, EngineError> {
+        let renderer = ctx.js_render.as_ref().ok_or_else(|| {
+            EngineError::Blocked(
+                "微信公众号需要 JS 渲染桥（配置 js_render.enabled=true 且 sources 含 wechat）"
+                    .into(),
+            )
+        })?;
         let url = format!(
             "https://weixin.sogou.com/weixin?type=2&query={}",
             encode_query_pct(query)
         );
-        let html = renderer.render(&url).await.map_err(|e| e.to_string())?;
+        let html = renderer
+            .render(&url)
+            .await
+            .map_err(|e| EngineError::Http(e.to_string()))?;
 
         let mut out = self.parse_html(&html, max);
         if out.is_empty() {
             out = generic_extract(&html, "wechat", max);
         }
         if out.is_empty() {
-            Err("微信公众号无结果（搜狗反爬较重，可能需要验证码）".into())
+            Err(EngineError::Blocked(
+                "微信公众号无结果（搜狗反爬较重，可能需要验证码）".into(),
+            ))
         } else {
             Ok(out)
         }

@@ -1,5 +1,6 @@
 /target
 /.tools
+/.cargo/config.toml
 /config.toml
 /runtime.toml
 /custom_engines.json

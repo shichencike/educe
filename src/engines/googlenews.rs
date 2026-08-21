@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use scraper::{Html, Selector};
 
 use crate::engines::common::{clean_text, clip, encode_query_pct, strip_html};
-use crate::engines::{Engine, EngineContext};
+use crate::engines::{Engine, EngineContext, EngineError};
 use std::borrow::Cow;
 
 use crate::models::{Category, EngineMeta, SearchResult};
@@ -29,7 +29,7 @@ impl Engine for GoogleNews {
         ctx: &EngineContext,
         query: &str,
         max: usize,
-    ) -> Result<Vec<SearchResult>, String> {
+    ) -> Result<Vec<SearchResult>, EngineError> {
         let url = format!(
             "https://news.google.com/rss/search?q={}&hl=zh-CN&gl=CN&ceid=CN:zh-Hans",
             encode_query_pct(query)
@@ -38,14 +38,15 @@ impl Engine for GoogleNews {
             .http
             .get_text("googlenews", &url)
             .await
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| EngineError::Http(e.to_string()))?;
 
         let doc = Html::parse_document(&xml);
-        let item_sel = Selector::parse("item").map_err(|e| e.to_string())?;
-        let title_sel = Selector::parse("title").map_err(|e| e.to_string())?;
-        let link_sel = Selector::parse("link").map_err(|e| e.to_string())?;
-        let desc_sel = Selector::parse("description").map_err(|e| e.to_string())?;
-        let date_sel = Selector::parse("pubDate").map_err(|e| e.to_string())?;
+        let item_sel = Selector::parse("item").map_err(|e| EngineError::Http(e.to_string()))?;
+        let title_sel = Selector::parse("title").map_err(|e| EngineError::Http(e.to_string()))?;
+        let link_sel = Selector::parse("link").map_err(|e| EngineError::Http(e.to_string()))?;
+        let desc_sel =
+            Selector::parse("description").map_err(|e| EngineError::Http(e.to_string()))?;
+        let date_sel = Selector::parse("pubDate").map_err(|e| EngineError::Http(e.to_string()))?;
 
         let mut out = Vec::new();
         for el in doc.select(&item_sel) {
@@ -85,7 +86,7 @@ impl Engine for GoogleNews {
         }
 
         if out.is_empty() {
-            Err("Google 新闻无结果或网络不可达".into())
+            Err(EngineError::Blocked("Google 新闻无结果或网络不可达".into()))
         } else {
             Ok(out)
         }

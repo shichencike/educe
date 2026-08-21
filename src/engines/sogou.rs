@@ -6,7 +6,7 @@ use async_trait::async_trait;
 use scraper::{Html, Selector};
 
 use crate::engines::common::{absolute_url, clean_text, clip, encode_query_pct};
-use crate::engines::{Engine, EngineContext};
+use crate::engines::{Engine, EngineContext, EngineError};
 use std::borrow::Cow;
 
 use crate::models::{Category, EngineMeta, SearchResult};
@@ -31,20 +31,25 @@ impl Engine for Sogou {
         ctx: &EngineContext,
         query: &str,
         max: usize,
-    ) -> Result<Vec<SearchResult>, String> {
+    ) -> Result<Vec<SearchResult>, EngineError> {
         let url = format!(
             "https://www.sogou.com/web?query={}&ie=utf8",
             encode_query_pct(query)
         );
-        let html = ctx.http.get_text("sogou", &url).await.map_err(|e| e.to_string())?;
+        let html = ctx
+            .http
+            .get_text("sogou", &url)
+            .await
+            .map_err(|e| EngineError::Http(e.to_string()))?;
 
         let doc = Html::parse_document(&html);
-        let result_sel = Selector::parse("div.vrwrap").map_err(|e| e.to_string())?;
-        let link_sel = Selector::parse("h3 a").map_err(|e| e.to_string())?;
+        let result_sel =
+            Selector::parse("div.vrwrap").map_err(|e| EngineError::Http(e.to_string()))?;
+        let link_sel = Selector::parse("h3 a").map_err(|e| EngineError::Http(e.to_string()))?;
         let snip_sels = [
-            Selector::parse(".text-layout").map_err(|e| e.to_string())?,
-            Selector::parse(".str_info").map_err(|e| e.to_string())?,
-            Selector::parse(".star-wiki").map_err(|e| e.to_string())?,
+            Selector::parse(".text-layout").map_err(|e| EngineError::Http(e.to_string()))?,
+            Selector::parse(".str_info").map_err(|e| EngineError::Http(e.to_string()))?,
+            Selector::parse(".star-wiki").map_err(|e| EngineError::Http(e.to_string()))?,
         ];
 
         let mut out = Vec::new();
@@ -70,7 +75,7 @@ impl Engine for Sogou {
         }
 
         if out.is_empty() {
-            Err("无结果或触发反爬".into())
+            Err(EngineError::Blocked("无结果或触发反爬".into()))
         } else {
             Ok(out)
         }

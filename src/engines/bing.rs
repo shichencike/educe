@@ -5,7 +5,7 @@ use async_trait::async_trait;
 use scraper::{Html, Selector};
 
 use crate::engines::common::{absolute_url, clean_text, clip, encode_query_pct};
-use crate::engines::{Engine, EngineContext};
+use crate::engines::{Engine, EngineContext, EngineError};
 use std::borrow::Cow;
 
 use crate::models::{Category, EngineMeta, SearchResult};
@@ -30,19 +30,41 @@ impl Engine for Bing {
         ctx: &EngineContext,
         query: &str,
         max: usize,
-    ) -> Result<Vec<SearchResult>, String> {
+    ) -> Result<Vec<SearchResult>, EngineError> {
         let count = max.min(50);
         let url = format!(
             "https://www.bing.com/search?q={}&count={}&setlang=zh-hans&mkt=zh-CN&form=QBLH",
             encode_query_pct(query),
             count
         );
-        let html = ctx.http.get_text("bing", &url).await.map_err(|e| e.to_string())?;
+        let html = ctx
+            .http
+            .get_text("bing", &url)
+            .await
+            .map_err(|e| EngineError::Http(e.to_string()))?;
 
-        let doc = Html::parse_document(&html);
-        let result_sel = Selector::parse("li.b_algo").map_err(|e| e.to_string())?;
-        let link_sel = Selector::parse("h2 a").map_err(|e| e.to_string())?;
-        let snip_sel = Selector::parse("p").map_err(|e| e.to_string())?;
+        let out = self.parse_html(&html, max);
+        if out.is_empty() {
+            Err(EngineError::Blocked("无结果或触发反爬".into()))
+        } else {
+            Ok(out)
+        }
+    }
+}
+
+impl Bing {
+    /// 解析 bing 结果页 HTML（独立方法便于单元测试）。
+    fn parse_html(&self, html: &str, max: usize) -> Vec<SearchResult> {
+        let doc = Html::parse_document(html);
+        let Ok(result_sel) = Selector::parse("li.b_algo") else {
+            return Vec::new();
+        };
+        let Ok(link_sel) = Selector::parse("h2 a") else {
+            return Vec::new();
+        };
+        let Ok(snip_sel) = Selector::parse("p") else {
+            return Vec::new();
+        };
 
         let mut out = Vec::new();
         for el in doc.select(&result_sel) {
@@ -65,11 +87,32 @@ impl Engine for Bing {
                 .unwrap_or_default();
             out.push(SearchResult::new(title, url, snippet, "bing", out.len()));
         }
+        out
+    }
+}
 
-        if out.is_empty() {
-            Err("无结果或触发反爬".into())
-        } else {
-            Ok(out)
-        }
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_bing_results() {
+        let html = r#"<html><body>
+            <li class="b_algo"><h2><a href="https://example.com/rust">Rust 教程</a></h2><p>摘要一</p></li>
+            <li class="b_algo"><h2><a href="/relative">相对链接</a></h2><p>摘要二</p></li>
+        </body></html>"#;
+        let bing = Bing;
+        let out = bing.parse_html(html, 10);
+        assert_eq!(out.len(), 2);
+        assert_eq!(out[0].title, "Rust 教程");
+        assert_eq!(out[0].url, "https://example.com/rust");
+        assert_eq!(out[1].url, "https://www.bing.com/relative");
+        assert_eq!(out[0].source, "bing");
+    }
+
+    #[test]
+    fn empty_page_yields_no_results() {
+        let bing = Bing;
+        assert!(bing.parse_html("<html><body></body></html>", 10).is_empty());
     }
 }

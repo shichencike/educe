@@ -39,7 +39,10 @@ impl JsRenderer {
         let args: Vec<&str> = parts.collect();
 
         let mut cmd = tokio::process::Command::new(program);
-        cmd.args(&args).arg(url).stdout(Stdio::piped()).stderr(Stdio::piped());
+        cmd.args(&args)
+            .arg(url)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
 
         let output = tokio::time::timeout(self.timeout, cmd.output())
             .await

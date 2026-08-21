@@ -11,6 +11,7 @@ max_per_source = 30   # 每个源最多返回的结果数（覆盖优先时调�
 timeout_ms = 10000    # 单个搜索源的超时上限
 max_results = 100     # 聚合去重后返回给前端的结果上限
 dedup = true          # 跨源去重合并
+max_concurrent = 8    # 同时请求的源数量上限（限流，降低目标站与网络压力）
 
 # ---- 代理池（可选）----
 # 支持 http / https / socks5 协议；留空则直连。

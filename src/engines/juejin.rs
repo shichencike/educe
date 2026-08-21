@@ -5,7 +5,7 @@
 use async_trait::async_trait;
 
 use crate::engines::common::{clip, encode_query_pct};
-use crate::engines::{Engine, EngineContext};
+use crate::engines::{Engine, EngineContext, EngineError};
 use std::borrow::Cow;
 
 use crate::models::{Category, EngineMeta, SearchResult};
@@ -30,7 +30,7 @@ impl Engine for Juejin {
         ctx: &EngineContext,
         query: &str,
         max: usize,
-    ) -> Result<Vec<SearchResult>, String> {
+    ) -> Result<Vec<SearchResult>, EngineError> {
         let page_size = max.min(20);
         let url = format!(
             "https://api.juejin.cn/search_api/v1/search?query={}&id_type=0&sort_type=0&page=0&page_size={}",
@@ -39,23 +39,19 @@ impl Engine for Juejin {
         );
         let resp = ctx
             .http
-            .get_with_headers(
-                "juejin",
-                &url,
-                &[(
-                    "Referer",
-                    "https://juejin.cn/search",
-                )],
-            )
+            .get_with_headers("juejin", &url, &[("Referer", "https://juejin.cn/search")])
             .await
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| EngineError::Http(e.to_string()))?;
         if !resp.status().is_success() {
-            return Err(format!("HTTP {}", resp.status().as_u16()));
+            return Err(EngineError::Http(format!(
+                "HTTP {}",
+                resp.status().as_u16()
+            )));
         }
         let v: serde_json::Value = resp
             .json()
             .await
-            .map_err(|e| format!("解析掘金响应失败: {e}"))?;
+            .map_err(|e| EngineError::Parse(format!("解析掘金响应失败: {e}")))?;
 
         let mut out = Vec::new();
         if let Some(data) = v.get("data").and_then(|x| x.as_array()) {
@@ -73,7 +69,10 @@ impl Engine for Juejin {
                 let url = rm
                     .get("url")
                     .and_then(|x| x.as_str())
-                    .or_else(|| rm.pointer("/article_info/article_url").and_then(|x| x.as_str()))
+                    .or_else(|| {
+                        rm.pointer("/article_info/article_url")
+                            .and_then(|x| x.as_str())
+                    })
                     .unwrap_or("");
                 if title.is_empty() || url.is_empty() {
                     continue;
@@ -81,21 +80,21 @@ impl Engine for Juejin {
                 let snippet = rm
                     .get("summary")
                     .and_then(|x| x.as_str())
-                    .or_else(|| rm.pointer("/article_info/brief_content").and_then(|x| x.as_str()))
+                    .or_else(|| {
+                        rm.pointer("/article_info/brief_content")
+                            .and_then(|x| x.as_str())
+                    })
                     .unwrap_or("");
                 // 摘要中可能带 HTML 标签，去掉
                 let snippet = crate::engines::common::strip_html(snippet);
                 let mut r = SearchResult::new(
-                    clip(&title, 200),
+                    clip(title, 200),
                     url.to_string(),
                     clip(&snippet, 300),
                     "juejin",
                     i,
                 );
-                if let Some(ct) = rm
-                    .pointer("/article_info/ctime")
-                    .and_then(|x| x.as_i64())
-                {
+                if let Some(ct) = rm.pointer("/article_info/ctime").and_then(|x| x.as_i64()) {
                     if let Some(dt) = unix_to_date(ct) {
                         r.published = Some(dt);
                     }
@@ -105,7 +104,7 @@ impl Engine for Juejin {
         }
 
         if out.is_empty() {
-            Err("掘金无结果或接口变更".into())
+            Err(EngineError::Parse("掘金无结果或接口变更".into()))
         } else {
             Ok(out)
         }

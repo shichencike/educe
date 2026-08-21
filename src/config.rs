@@ -40,6 +40,8 @@ pub struct SearchConfig {
     pub max_results: usize,
     /// 是否跨源去重合并
     pub dedup: bool,
+    /// 同时请求的源数量上限（限流，降低目标站与网络压力）
+    pub max_concurrent: usize,
 }
 
 impl Default for SearchConfig {
@@ -49,6 +51,7 @@ impl Default for SearchConfig {
             timeout_ms: 10_000,
             max_results: 100,
             dedup: true,
+            max_concurrent: 8,
         }
     }
 }
@@ -95,17 +98,11 @@ impl Default for JsRenderConfig {
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default)]
 pub struct EnginesConfig {
     /// 启用白名单；空 = 全部启用
     pub enabled: Vec<String>,
-}
-
-impl Default for EnginesConfig {
-    fn default() -> Self {
-        EnginesConfig { enabled: Vec::new() }
-    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -122,7 +119,7 @@ impl Default for LoggingConfig {
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default)]
 pub struct AppConfig {
     pub server: ServerConfig,
@@ -137,21 +134,6 @@ pub struct AppConfig {
     pub logging: LoggingConfig,
 }
 
-impl Default for AppConfig {
-    fn default() -> Self {
-        AppConfig {
-            server: ServerConfig::default(),
-            search: SearchConfig::default(),
-            proxy: ProxyConfig::default(),
-            rate_limit: HashMap::new(),
-            weights: HashMap::new(),
-            js_render: JsRenderConfig::default(),
-            engines: EnginesConfig::default(),
-            logging: LoggingConfig::default(),
-        }
-    }
-}
-
 impl AppConfig {
     /// 加载配置：默认值 + 可选 TOML 文件 + 环境变量覆盖。
     /// 配置文件缺失时仅告警并继续（用默认值），解析失败则报错。
@@ -159,10 +141,9 @@ impl AppConfig {
         let mut table = toml::Table::new();
         if let Some(p) = path {
             if Path::new(p).exists() {
-                let text = std::fs::read_to_string(p)
-                    .with_context(|| format!("读取配置文件失败: {p}"))?;
-                table = toml::from_str(&text)
-                    .with_context(|| format!("解析配置文件失败: {p}"))?;
+                let text =
+                    std::fs::read_to_string(p).with_context(|| format!("读取配置文件失败: {p}"))?;
+                table = toml::from_str(&text).with_context(|| format!("解析配置文件失败: {p}"))?;
             } else {
                 eprintln!(
                     "[warn] 配置文件不存在: {p}，使用默认配置（可运行 `educe gen-config` 生成）"
@@ -233,5 +214,40 @@ fn coerce_env_value(s: &str) -> toml::Value {
         "true" => toml::Value::Boolean(true),
         "false" => toml::Value::Boolean(false),
         _ => toml::Value::String(s.to_string()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn coerce_env_value_infers_types() {
+        assert_eq!(coerce_env_value("9000"), toml::Value::Integer(9000));
+        assert_eq!(coerce_env_value("1.5"), toml::Value::Float(1.5));
+        assert_eq!(coerce_env_value("true"), toml::Value::Boolean(true));
+        assert_eq!(coerce_env_value("abc"), toml::Value::String("abc".into()));
+    }
+
+    #[test]
+    fn set_path_writes_nested_table() {
+        let mut table = toml::Table::new();
+        set_path(&mut table, &["server", "port"], toml::Value::Integer(9000));
+        assert_eq!(table["server"]["port"].as_integer(), Some(9000));
+    }
+
+    #[test]
+    fn env_override_applies_to_load() {
+        std::env::set_var("EDUCE_SERVER__PORT", "9000");
+        let cfg = AppConfig::load(None).expect("默认配置可加载");
+        std::env::remove_var("EDUCE_SERVER__PORT");
+        assert_eq!(cfg.server.port, 9000);
+    }
+
+    #[test]
+    fn rate_limit_and_weight_fallbacks() {
+        let cfg = AppConfig::default();
+        assert_eq!(cfg.rate_limit_for("any_unknown"), 30); // 回退 default
+        assert_eq!(cfg.weight_for("any_unknown"), 1.0);
     }
 }

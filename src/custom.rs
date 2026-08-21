@@ -12,7 +12,7 @@ use scraper::{Html, Selector};
 use serde::{Deserialize, Serialize};
 
 use crate::engines::common::{absolute_url, clean_text, clip, encode_query_pct, generic_extract};
-use crate::engines::{Engine, EngineContext};
+use crate::engines::{Engine, EngineContext, EngineError};
 use crate::models::{Category, EngineMeta, SearchResult};
 
 /// 自定义引擎配置文件（默认工作目录下）
@@ -79,9 +79,8 @@ impl CustomEngineConfig {
         if self.result_selector.trim().is_empty() || self.title_selector.trim().is_empty() {
             return Err("结果容器与标题选择器不能为空".into());
         }
-        Selector::parse(&self.result_selector).map_err(|_| {
-            format!("结果选择器不是合法 CSS 选择器: {}", self.result_selector)
-        })?;
+        Selector::parse(&self.result_selector)
+            .map_err(|_| format!("结果选择器不是合法 CSS 选择器: {}", self.result_selector))?;
         Ok(())
     }
 
@@ -146,7 +145,13 @@ impl CustomEngine {
                 .and_then(|s| el.select(s).next())
                 .map(|s| clip(&s.text().collect::<String>(), 300))
                 .unwrap_or_default();
-            out.push(SearchResult::new(title, url, snippet, &self.config.id, out.len()));
+            out.push(SearchResult::new(
+                title,
+                url,
+                snippet,
+                &self.config.id,
+                out.len(),
+            ));
         }
         out
     }
@@ -168,23 +173,25 @@ impl Engine for CustomEngine {
         ctx: &EngineContext,
         query: &str,
         max: usize,
-    ) -> Result<Vec<SearchResult>, String> {
+    ) -> Result<Vec<SearchResult>, EngineError> {
         let url = self
             .config
             .url_template
             .replace("{query}", &encode_query_pct(query));
 
         let html = if self.config.needs_js {
-            let renderer = ctx
-                .js_render
-                .as_ref()
-                .ok_or("该自定义引擎需要启用 JS 渲染桥（见设置 → JS 渲染桥）")?;
-            renderer.render(&url).await.map_err(|e| e.to_string())?
+            let renderer = ctx.js_render.as_ref().ok_or(EngineError::Blocked(
+                "该自定义引擎需要启用 JS 渲染桥（见设置 → JS 渲染桥）".into(),
+            ))?;
+            renderer
+                .render(&url)
+                .await
+                .map_err(|e| EngineError::Http(e.to_string()))?
         } else {
             ctx.http
                 .get_text(&self.config.id, &url)
                 .await
-                .map_err(|e| e.to_string())?
+                .map_err(|e| EngineError::Http(e.to_string()))?
         };
 
         let mut out = self.parse_html(&html, &url, max);
@@ -193,7 +200,9 @@ impl Engine for CustomEngine {
             out = generic_extract(&html, &self.config.id, max);
         }
         if out.is_empty() {
-            Err("无结果（检查选择器是否匹配页面结构）".into())
+            Err(EngineError::Parse(
+                "无结果（检查选择器是否匹配页面结构）".into(),
+            ))
         } else {
             Ok(out)
         }

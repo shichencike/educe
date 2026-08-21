@@ -4,7 +4,7 @@
 use async_trait::async_trait;
 
 use crate::engines::common::{clip, encode_query_pct};
-use crate::engines::{Engine, EngineContext};
+use crate::engines::{Engine, EngineContext, EngineError};
 use std::borrow::Cow;
 
 use crate::models::{Category, EngineMeta, SearchResult};
@@ -29,7 +29,7 @@ impl Engine for PubMed {
         ctx: &EngineContext,
         query: &str,
         max: usize,
-    ) -> Result<Vec<SearchResult>, String> {
+    ) -> Result<Vec<SearchResult>, EngineError> {
         let retmax = max.min(50);
         // 第一步：ESearch 拿到 PMID 列表
         let esearch = format!(
@@ -41,18 +41,18 @@ impl Engine for PubMed {
             .http
             .get("pubmed", &esearch)
             .await
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| EngineError::Http(e.to_string()))?;
         let v: serde_json::Value = resp
             .json()
             .await
-            .map_err(|e| format!("解析 ESearch 失败: {e}"))?;
+            .map_err(|e| EngineError::Parse(format!("解析 ESearch 失败: {e}")))?;
         let ids: Vec<&str> = v
             .pointer("/esearchresult/idlist")
             .and_then(|x| x.as_array())
             .map(|a| a.iter().filter_map(|i| i.as_str()).collect())
             .unwrap_or_default();
         if ids.is_empty() {
-            return Err("PubMed 无结果".into());
+            return Err(EngineError::Parse("PubMed 无结果".into()));
         }
 
         // 第二步：ESummary 批量取详情
@@ -64,11 +64,11 @@ impl Engine for PubMed {
             .http
             .get("pubmed", &esummary)
             .await
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| EngineError::Http(e.to_string()))?;
         let v: serde_json::Value = resp
             .json()
             .await
-            .map_err(|e| format!("解析 ESummary 失败: {e}"))?;
+            .map_err(|e| EngineError::Parse(format!("解析 ESummary 失败: {e}")))?;
 
         let mut out = Vec::new();
         let mut rank = 0usize;
@@ -82,7 +82,10 @@ impl Engine for PubMed {
             let Some(title) = rec.get("title").and_then(|x| x.as_str()) else {
                 continue;
             };
-            let journal = rec.get("fulljournalname").and_then(|x| x.as_str()).unwrap_or("");
+            let journal = rec
+                .get("fulljournalname")
+                .and_then(|x| x.as_str())
+                .unwrap_or("");
             let pubdate = rec.get("pubdate").and_then(|x| x.as_str()).unwrap_or("");
             let pages = rec
                 .get("articleids")
@@ -104,13 +107,8 @@ impl Engine for PubMed {
             } else {
                 format!("{journal} · {pubdate}")
             };
-            let mut r = SearchResult::new(
-                clip(title, 200),
-                url,
-                clip(&snippet, 300),
-                "pubmed",
-                rank,
-            );
+            let mut r =
+                SearchResult::new(clip(title, 200), url, clip(&snippet, 300), "pubmed", rank);
             if pubdate.len() >= 4 {
                 r.published = Some(pubdate[..4].to_string()); // 年份
             }
@@ -119,7 +117,7 @@ impl Engine for PubMed {
         }
 
         if out.is_empty() {
-            Err("PubMed 详情解析失败".into())
+            Err(EngineError::Parse("PubMed 详情解析失败".into()))
         } else {
             Ok(out)
         }

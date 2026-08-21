@@ -11,8 +11,8 @@ pub mod csdn;
 pub mod duckduckgo;
 pub mod gitee;
 pub mod github;
-pub mod googlenews;
 pub mod google;
+pub mod googlenews;
 pub mod jianshu;
 pub mod juejin;
 pub mod pubmed;
@@ -32,6 +32,30 @@ use crate::http::HttpClient;
 use crate::jsrender::JsRenderer;
 use crate::models::{EngineMeta, SearchResult};
 
+/// 引擎执行错误（分类用于重试决策与前端展示）。
+#[derive(Debug, thiserror::Error)]
+pub enum EngineError {
+    /// 网络 / HTTP / 渲染类失败，可重试
+    #[error("{0}")]
+    Http(String),
+    /// 单源超时，可重试
+    #[error("单源超时")]
+    Timeout,
+    /// 反爬 / 验证码 / 登录墙 / 限流，重试无意义
+    #[error("{0}")]
+    Blocked(String),
+    /// 解析失败 / 无结果，重试无意义
+    #[error("{0}")]
+    Parse(String),
+}
+
+impl EngineError {
+    /// 是否值得自动重试一次（仅网络/超时类）。
+    pub fn retryable(&self) -> bool {
+        matches!(self, EngineError::Http(_) | EngineError::Timeout)
+    }
+}
+
 /// 引擎共享上下文（每次聚合搜索时构造一次，各引擎并发使用）。
 #[derive(Clone)]
 pub struct EngineContext {
@@ -46,13 +70,13 @@ pub trait Engine: Send + Sync {
     /// 引擎静态元信息。
     fn meta(&self) -> EngineMeta;
     /// 执行一次搜索，返回原始结果（未去重、未排序）。
-    /// 失败时返回人类可读的错误信息字符串（会展示在前端）。
+    /// 失败时返回分类错误（调度器据此决定是否重试）。
     async fn search(
         &self,
         ctx: &EngineContext,
         query: &str,
         max: usize,
-    ) -> Result<Vec<SearchResult>, String>;
+    ) -> Result<Vec<SearchResult>, EngineError>;
 }
 
 /// 全部引擎元信息（用于 /api/sources）。

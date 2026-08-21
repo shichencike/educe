@@ -12,11 +12,12 @@ use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 
 use futures::stream::{FuturesUnordered, StreamExt};
+use tokio::sync::Semaphore;
 
 use crate::config::AppConfig;
 use crate::custom::{load_custom, save_custom, CustomEngine, CustomEngineConfig};
 use crate::engines::common::normalize_url;
-use crate::engines::{all_metas, build, Engine, EngineContext};
+use crate::engines::{all_metas, build, Engine, EngineContext, EngineError};
 use crate::http::HttpClient;
 use crate::jsrender::JsRenderer;
 use crate::models::{EngineInfo, EngineReport, SearchResponse, SearchResult};
@@ -38,10 +39,26 @@ pub struct Aggregator {
     runtime: RwLock<RuntimeSettings>,
 }
 
+/// 网络类失败自动重试前的退避时长。
+const RETRY_BACKOFF: Duration = Duration::from_millis(300);
+
 /// 单引擎执行结果（报告 + 结果列表）。
 struct EngineOutcome {
     report: EngineReport,
     results: Vec<SearchResult>,
+}
+
+/// 执行单个引擎搜索（带超时），超时归一为 EngineError::Timeout。
+async fn run_engine(
+    e: &Arc<dyn Engine>,
+    ctx: &EngineContext,
+    query: &str,
+    max: usize,
+    timeout: Duration,
+) -> Result<Vec<SearchResult>, EngineError> {
+    tokio::time::timeout(timeout, e.search(ctx, query, max))
+        .await
+        .map_err(|_| EngineError::Timeout)?
 }
 
 impl Aggregator {
@@ -136,7 +153,10 @@ impl Aggregator {
         // 锁序：先 custom_configs 后 engines，避免死锁
         let mut configs = self.custom_configs.lock().unwrap();
         let mut engines = self.engines.lock().unwrap();
-        if let Some(idx) = engines.iter().position(|e| e.meta().id.as_ref() == config.id) {
+        if let Some(idx) = engines
+            .iter()
+            .position(|e| e.meta().id.as_ref() == config.id)
+        {
             engines[idx] = Arc::new(engine); // 覆盖同 id
         } else {
             self.http
@@ -214,8 +234,7 @@ impl Aggregator {
         let selected: Vec<Arc<dyn Engine>> = snapshot
             .iter()
             .filter(|e| {
-                sources
-                    .map_or(true, |list| list.iter().any(|s| s.as_str() == e.meta().id.as_ref()))
+                sources.is_none_or(|list| list.iter().any(|s| s.as_str() == e.meta().id.as_ref()))
             })
             .cloned()
             .collect();
@@ -229,46 +248,77 @@ impl Aggregator {
         // 权重覆盖：用户偏好
         let weight_overrides = prefs.map(|p| p.weight_overrides());
 
-        // 并发执行全部引擎
+        // 并发执行全部引擎（Semaphore 限流，超出的源排队等待）
+        let max_concurrent = self.cfg.search.max_concurrent.clamp(1, 32);
+        let semaphore = Arc::new(Semaphore::new(max_concurrent));
+        tracing::debug!(
+            query = %query,
+            engines = selected.len(),
+            max_concurrent,
+            "aggregate search start"
+        );
+
         let mut tasks = FuturesUnordered::new();
         for e in &selected {
             let e = e.clone();
             let ctx = ctx.clone();
             let q = query.to_string();
+            let sem = semaphore.clone();
             tasks.push(async move {
-                let t0 = Instant::now();
-                let outcome =
-                    tokio::time::timeout(timeout, e.search(&ctx, &q, max_per_source)).await;
-                let time_ms = t0.elapsed().as_millis() as u64;
+                let _permit = sem.acquire_owned().await.expect("semaphore closed");
                 let id = e.meta().id.to_string();
+                let t0 = Instant::now();
+                // 首次执行；网络/超时类失败自动重试一次（带退避）
+                let mut outcome = run_engine(&e, &ctx, &q, max_per_source, timeout).await;
+                let mut retried = false;
+                if let Err(err) = &outcome {
+                    if err.retryable() {
+                        tracing::debug!(engine = %id, error = %err, "engine failed, retrying once");
+                        tokio::time::sleep(RETRY_BACKOFF).await;
+                        outcome = run_engine(&e, &ctx, &q, max_per_source, timeout).await;
+                        retried = true;
+                    }
+                }
+                let time_ms = t0.elapsed().as_millis() as u64;
                 match outcome {
-                    Ok(Ok(results)) => EngineOutcome {
-                        report: EngineReport {
-                            id,
-                            count: results.len(),
+                    Ok(results) => {
+                        tracing::debug!(
+                            engine = %id,
+                            count = results.len(),
                             time_ms,
-                            error: None,
-                        },
-                        results,
-                    },
-                    Ok(Err(msg)) => EngineOutcome {
-                        report: EngineReport {
-                            id,
-                            count: 0,
+                            retried,
+                            "engine ok"
+                        );
+                        EngineOutcome {
+                            report: EngineReport {
+                                id,
+                                count: results.len(),
+                                time_ms,
+                                error: None,
+                                retried,
+                            },
+                            results,
+                        }
+                    }
+                    Err(err) => {
+                        tracing::debug!(
+                            engine = %id,
+                            error = %err,
                             time_ms,
-                            error: Some(msg),
-                        },
-                        results: Vec::new(),
-                    },
-                    Err(_) => EngineOutcome {
-                        report: EngineReport {
-                            id,
-                            count: 0,
-                            time_ms,
-                            error: Some("单源超时".into()),
-                        },
-                        results: Vec::new(),
-                    },
+                            retried,
+                            "engine failed"
+                        );
+                        EngineOutcome {
+                            report: EngineReport {
+                                id,
+                                count: 0,
+                                time_ms,
+                                error: Some(err.to_string()),
+                                retried,
+                            },
+                            results: Vec::new(),
+                        }
+                    }
                 }
             });
         }
@@ -290,6 +340,16 @@ impl Aggregator {
         };
         let total = ranked.len();
         let page: Vec<SearchResult> = ranked.into_iter().skip(offset).take(max).collect();
+
+        let engines_ok = reports.iter().filter(|r| r.error.is_none()).count();
+        tracing::info!(
+            query = %query,
+            total,
+            time_ms = started.elapsed().as_millis() as u64,
+            engines_ok,
+            engines_failed = reports.len() - engines_ok,
+            "aggregate search completed"
+        );
 
         SearchResponse {
             query: query.to_string(),
@@ -342,7 +402,11 @@ fn dedup_and_rank(
     }
 
     apply_scores(&mut merged, cfg, query, weight_overrides);
-    merged.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+    merged.sort_unstable_by(|a, b| {
+        b.score
+            .partial_cmp(&a.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
     merged
 }
 
@@ -355,7 +419,11 @@ fn rank_all(
 ) -> Vec<SearchResult> {
     let mut v = all;
     apply_scores(&mut v, cfg, query, weight_overrides);
-    v.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+    v.sort_unstable_by(|a, b| {
+        b.score
+            .partial_cmp(&a.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
     v
 }
 
@@ -392,5 +460,56 @@ fn apply_scores(
             score += hits as f64 * 0.15;
         }
         r.score = score;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::Category;
+
+    fn result(title: &str, url: &str, source: &str, rank: usize) -> SearchResult {
+        SearchResult::new(title.into(), url.into(), String::new(), source, rank)
+    }
+
+    #[test]
+    fn dedup_merges_same_url_across_sources() {
+        let all = vec![
+            result("Rust", "https://rust-lang.org/", "bing", 0),
+            result(
+                "Rust lang",
+                "https://rust-lang.org/?utm_source=1",
+                "baidu",
+                1,
+            ),
+        ];
+        let merged = dedup_and_rank(all, &AppConfig::default(), "rust", None);
+        assert_eq!(merged.len(), 1);
+        assert!(merged[0].source.contains("bing"));
+        assert!(merged[0].source.contains("baidu"));
+        assert_eq!(merged[0].title, "Rust lang"); // 标题取长
+    }
+
+    #[test]
+    fn keyword_hit_boosts_ranking() {
+        let all = vec![
+            result("rust async book", "https://a.com/rust-async", "bing", 0),
+            result("Something else", "https://b.com/other", "bing", 0),
+        ];
+        let ranked = rank_all(all, &AppConfig::default(), "rust", None);
+        assert_eq!(ranked[0].url, "https://a.com/rust-async");
+        assert!(ranked[0].score > ranked[1].score);
+    }
+
+    #[test]
+    fn weight_override_changes_order() {
+        let all = vec![
+            result("same", "https://a.com/x", "bing", 0),
+            result("same", "https://b.com/y", "github", 0),
+        ];
+        let mut overrides = HashMap::new();
+        overrides.insert("github".to_string(), 5.0);
+        let ranked = rank_all(all, &AppConfig::default(), "", Some(&overrides));
+        assert_eq!(ranked[0].url, "https://b.com/y"); // github 权重 5.0 胜出
     }
 }

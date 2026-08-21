@@ -1,0 +1,24 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  quality:
+    name: fmt + clippy + test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - name: 格式检查
+        run: cargo fmt --check
+      - name: clippy 严格检查（告警即失败）
+        run: cargo clippy -- -D warnings
+      - name: 单元测试
+        run: cargo test
+      - name: 构建
+        run: cargo build

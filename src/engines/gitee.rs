@@ -6,7 +6,7 @@ use async_trait::async_trait;
 use scraper::{Html, Selector};
 
 use crate::engines::common::{clean_text, clip, encode_query_pct};
-use crate::engines::{Engine, EngineContext};
+use crate::engines::{Engine, EngineContext, EngineError};
 use std::borrow::Cow;
 
 use crate::models::{Category, EngineMeta, SearchResult};
@@ -22,20 +22,32 @@ pub struct Gitee;
 
 impl Gitee {
     /// 官方 API：search/repositories，返回 items[]。
-    async fn via_api(&self, ctx: &EngineContext, query: &str, max: usize) -> Result<Vec<SearchResult>, String> {
+    async fn via_api(
+        &self,
+        ctx: &EngineContext,
+        query: &str,
+        max: usize,
+    ) -> Result<Vec<SearchResult>, EngineError> {
         let url = format!(
             "https://gitee.com/api/v5/search/repositories?q={}&per_page={}",
             encode_query_pct(query),
             max.min(50)
         );
-        let resp = ctx.http.get("gitee", &url).await.map_err(|e| e.to_string())?;
+        let resp = ctx
+            .http
+            .get("gitee", &url)
+            .await
+            .map_err(|e| EngineError::Http(e.to_string()))?;
         if !resp.status().is_success() {
-            return Err(format!("API HTTP {}", resp.status().as_u16()));
+            return Err(EngineError::Http(format!(
+                "API HTTP {}",
+                resp.status().as_u16()
+            )));
         }
         let v: serde_json::Value = resp
             .json()
             .await
-            .map_err(|e| format!("解析 Gitee API 失败: {e}"))?;
+            .map_err(|e| EngineError::Parse(format!("解析 Gitee API 失败: {e}")))?;
         let mut out = Vec::new();
         if let Some(items) = v.as_array() {
             for (i, it) in items.iter().enumerate() {
@@ -48,8 +60,14 @@ impl Gitee {
                     continue;
                 }
                 let desc = it.get("description").and_then(|x| x.as_str()).unwrap_or("");
-                let stars = it.get("stargazers_count").and_then(|x| x.as_i64()).unwrap_or(0);
-                let lang = it.get("language").and_then(|x| x.as_str()).unwrap_or("未知语言");
+                let stars = it
+                    .get("stargazers_count")
+                    .and_then(|x| x.as_i64())
+                    .unwrap_or(0);
+                let lang = it
+                    .get("language")
+                    .and_then(|x| x.as_str())
+                    .unwrap_or("未知语言");
                 let snippet = if desc.is_empty() {
                     format!("⭐ {stars} · {lang}")
                 } else {
@@ -74,17 +92,28 @@ impl Gitee {
     }
 
     /// HTML 解析（尽力而为）：`.repository-list li` -> `a.title`。
-    async fn via_html(&self, ctx: &EngineContext, query: &str, max: usize) -> Result<Vec<SearchResult>, String> {
+    async fn via_html(
+        &self,
+        ctx: &EngineContext,
+        query: &str,
+        max: usize,
+    ) -> Result<Vec<SearchResult>, EngineError> {
         let url = format!(
             "https://search.gitee.com/?q={}&type=repository",
             encode_query_pct(query)
         );
-        let html = ctx.http.get_text("gitee", &url).await.map_err(|e| e.to_string())?;
+        let html = ctx
+            .http
+            .get_text("gitee", &url)
+            .await
+            .map_err(|e| EngineError::Http(e.to_string()))?;
         let doc = Html::parse_document(&html);
         let result_sel = Selector::parse("li.project-item, li[class*='repository']")
-            .map_err(|e| e.to_string())?;
-        let link_sel = Selector::parse("a.title, a[class*='title']").map_err(|e| e.to_string())?;
-        let snip_sel = Selector::parse(".desc, .project-desc").map_err(|e| e.to_string())?;
+            .map_err(|e| EngineError::Http(e.to_string()))?;
+        let link_sel = Selector::parse("a.title, a[class*='title']")
+            .map_err(|e| EngineError::Http(e.to_string()))?;
+        let snip_sel = Selector::parse(".desc, .project-desc")
+            .map_err(|e| EngineError::Http(e.to_string()))?;
 
         let mut out = Vec::new();
         for el in doc.select(&result_sel) {
@@ -126,7 +155,7 @@ impl Engine for Gitee {
         ctx: &EngineContext,
         query: &str,
         max: usize,
-    ) -> Result<Vec<SearchResult>, String> {
+    ) -> Result<Vec<SearchResult>, EngineError> {
         // 先 API
         match self.via_api(ctx, query, max).await {
             Ok(items) if !items.is_empty() => return Ok(items),
@@ -135,7 +164,7 @@ impl Engine for Gitee {
         // 退回 HTML
         let items = self.via_html(ctx, query, max).await?;
         if items.is_empty() {
-            Err("Gitee 无结果或页面结构变化".into())
+            Err(EngineError::Parse("Gitee 无结果或页面结构变化".into()))
         } else {
             Ok(items)
         }

@@ -83,6 +83,13 @@ pub struct EngineReport {
     pub time_ms: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+    /// 是否经历过一次自动重试（网络类失败）
+    #[serde(skip_serializing_if = "is_false")]
+    pub retried: bool,
+}
+
+fn is_false(b: &bool) -> bool {
+    !*b
 }
 
 /// GET /api/search 查询参数。

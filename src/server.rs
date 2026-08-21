@@ -20,9 +20,7 @@ use axum::{Json, Router};
 use crate::config::AppConfig;
 use crate::custom::CustomEngineConfig;
 use crate::models::{SearchQuery, SearchResponse};
-use crate::prefs::{
-    extract_cookie, set_cookie_header, UserPrefs, PREFS_COOKIE, PREFS_MAX_AGE,
-};
+use crate::prefs::{extract_cookie, set_cookie_header, UserPrefs, PREFS_COOKIE, PREFS_MAX_AGE};
 use crate::runtime::RuntimeSettings;
 use crate::search::Aggregator;
 
@@ -49,11 +47,11 @@ pub async fn serve(cfg: Arc<AppConfig>) -> anyhow::Result<()> {
         .route("/settings.html", get(settings))
         .route("/api/search", get(search_handler))
         .route("/api/sources", get(sources_handler))
-        .route("/api/prefs", get(prefs_get).post(prefs_post).delete(prefs_delete))
         .route(
-            "/api/engines/custom",
-            get(custom_list).post(custom_add),
+            "/api/prefs",
+            get(prefs_get).post(prefs_post).delete(prefs_delete),
         )
+        .route("/api/engines/custom", get(custom_list).post(custom_add))
         .route("/api/engines/custom/{id}", delete(custom_delete))
         .route("/api/runtime", get(runtime_get).post(runtime_post))
         .route("/healthz", get(healthz))
@@ -125,10 +123,7 @@ async fn custom_list(State(st): State<AppState>) -> Json<Vec<CustomEngineConfig>
 }
 
 /// 新增/更新自定义引擎；返回更新后的完整列表。
-async fn custom_add(
-    State(st): State<AppState>,
-    Json(cfg): Json<CustomEngineConfig>,
-) -> Response {
+async fn custom_add(State(st): State<AppState>, Json(cfg): Json<CustomEngineConfig>) -> Response {
     match st.agg.add_custom_engine(&cfg) {
         Ok(list) => Json(list).into_response(),
         Err(msg) => (
@@ -140,10 +135,7 @@ async fn custom_add(
 }
 
 /// 删除自定义引擎；返回更新后的完整列表。
-async fn custom_delete(
-    State(st): State<AppState>,
-    Path(id): Path<String>,
-) -> Response {
+async fn custom_delete(State(st): State<AppState>, Path(id): Path<String>) -> Response {
     match st.agg.remove_custom_engine(&id) {
         Ok(list) => Json(list).into_response(),
         Err(msg) => (
@@ -160,10 +152,7 @@ async fn runtime_get(State(st): State<AppState>) -> Json<RuntimeSettings> {
 }
 
 /// 更新运行时设置：重建 HTTP 客户端 / JS 渲染桥并持久化。
-async fn runtime_post(
-    State(st): State<AppState>,
-    Json(rs): Json<RuntimeSettings>,
-) -> Response {
+async fn runtime_post(State(st): State<AppState>, Json(rs): Json<RuntimeSettings>) -> Response {
     match st.agg.apply_runtime(&rs) {
         Ok(r) => Json(r).into_response(),
         Err(msg) => (
@@ -174,7 +163,10 @@ async fn runtime_post(
     }
 }
 
-async fn sources_handler(State(st): State<AppState>, headers: HeaderMap) -> Json<Vec<crate::models::EngineInfo>> {
+async fn sources_handler(
+    State(st): State<AppState>,
+    headers: HeaderMap,
+) -> Json<Vec<crate::models::EngineInfo>> {
     let prefs = current_prefs(&st.cfg, &headers);
     Json(st.agg.source_infos_with_prefs(&prefs))
 }
