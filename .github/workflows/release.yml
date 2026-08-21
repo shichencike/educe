@@ -31,7 +31,18 @@ jobs:
           targets: ${{ matrix.target }}
       - name: 安装 musl 交叉工具链（ring 需要 C 编译器）
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y musl-tools
+        run: |
+          case "${{ matrix.target }}" in
+            x86_64-unknown-linux-musl)
+              sudo apt-get update && sudo apt-get install -y musl-tools
+              ;;
+            aarch64-unknown-linux-musl)
+              # Ubuntu 的 musl-tools 只带 x86_64 的 musl-gcc，aarch64 需用 musl.cc 交叉工具链
+              curl -fsSL https://musl.cc/aarch64-linux-musl-cross.tgz -o /tmp/musl.tgz
+              sudo tar -xzf /tmp/musl.tgz -C /opt
+              echo "/opt/aarch64-linux-musl-cross/bin" >> "$GITHUB_PATH"
+              ;;
+          esac
       - name: 构建
         run: cargo build --release --target ${{ matrix.target }} ${{ matrix.extra }}
       - name: 上传产物
