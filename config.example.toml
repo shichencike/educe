@@ -1,0 +1,61 @@
+# ===== Educe 元搜索引擎配置示例 =====
+# 复制为 config.toml 后按需修改；未给出的配置项使用默认值。
+# 配置也可通过环境变量覆盖，如 EDUCE_SERVER__PORT=9000（双下划线分隔层级）。
+
+[server]
+host = "127.0.0.1"   # 监听地址；对外提供服务请改为 0.0.0.0
+port = 8080
+
+[search]
+max_per_source = 30   # 每个源最多返回的结果数（覆盖优先时调大）
+timeout_ms = 10000    # 单个搜索源的超时上限
+max_results = 100     # 聚合去重后返回给前端的结果上限
+dedup = true          # 跨源去重合并
+
+# ---- 代理池（可选）----
+# 支持 http / https / socks5 协议；留空则直连。
+[proxy]
+enabled = false
+urls = [
+    "http://127.0.0.1:7890",
+    # "socks5://127.0.0.1:1080",
+]
+rotate = "round_robin"   # round_robin | random
+
+# ---- 每源限速（请求/分钟，0 表示不限）----
+[rate_limit]
+default = 30
+baidu = 10
+bing = 15
+sogou = 10
+so360 = 10
+
+# ---- 引擎权重（影响跨源评分排序，默认 1.0）----
+[weights]
+github = 1.1
+stackoverflow = 1.1
+arxiv = 1.2
+pubmed = 1.2
+wikipedia = 1.1
+
+# ---- JS 渲染桥（可选）----
+# 需要执行 JS 的源（zhihu/csdn/jianshu/wechat/google 等）通过外部命令
+# 渲染页面：Node + puppeteer-core / playwright。命令接收一个 URL 参数，
+# 将渲染后的 HTML 输出到 stdout，由 Rust 侧解析。详见 README 与 js-exec/。
+[js_render]
+enabled = false
+command = "node js-exec/render.js"
+timeout_ms = 30000
+sources = ["zhihu", "csdn", "jianshu", "wechat", "google"]
+
+# ---- 启用的搜索源（不写则全部启用）----
+[engines]
+enabled = [
+    "baidu", "bing", "duckduckgo", "sogou", "so360", "google",
+    "github", "stackoverflow", "gitee", "juejin",
+    "arxiv", "pubmed", "wikipedia", "googlenews",
+    "zhihu", "csdn", "jianshu", "wechat",
+]
+
+[logging]
+level = "info"   # trace | debug | info | warn | error

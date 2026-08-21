@@ -1,0 +1,12 @@
+{
+  "name": "educe-js-exec",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Educe 元搜索引擎的 JS 渲染桥（puppeteer-core）",
+  "scripts": {
+    "render": "node render.js"
+  },
+  "dependencies": {
+    "puppeteer-core": "^23.0.0"
+  }
+}

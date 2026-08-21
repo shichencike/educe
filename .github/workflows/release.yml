@@ -1,0 +1,61 @@
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-x86_64
+            os: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+            extra: ""
+          - name: linux-aarch64
+            os: ubuntu-latest
+            target: aarch64-unknown-linux-musl
+            extra: ""
+          - name: windows-x86_64
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
+            extra: --no-default-features --features tls-native
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - name: 安装 musl 交叉工具链（ring 需要 C 编译器）
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+      - name: 构建
+        run: cargo build --release --target ${{ matrix.target }} ${{ matrix.extra }}
+      - name: 上传产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: educe-${{ matrix.name }}
+          path: |
+            target/${{ matrix.target }}/release/educe
+            target/${{ matrix.target }}/release/educe.exe
+
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/**/*
+          body: |
+            Educe 元搜索引擎发布版（静态编译单二进制）。
+
+            - linux-x86_64: Linux 静态（musl）
+            - linux-aarch64: ARM64 Linux / Termux
+            - windows-x86_64: Windows（schannel TLS）

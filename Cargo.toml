@@ -1,0 +1,54 @@
+[package]
+name = "educe"
+version = "0.1.0"
+edition = "2021"
+description = "Educe 元搜索引擎：聚合多源搜索结果的 Rust 静态编译服务（Web + REST API）"
+license = "MIT"
+
+[[bin]]
+name = "educe"
+path = "src/main.rs"
+
+[features]
+# TLS 后端二选一：
+#  - tls-rustls（默认）：rustls + ring，用于 Linux / Termux 静态编译（CI 中有 C 编译器）
+#  - tls-native       ：Windows 用系统 schannel（纯 Rust 绑定，零 C 依赖，无需安装任何编译器）
+# 本机 Windows 验证：cargo check --no-default-features --features tls-native
+default = ["tls-rustls"]
+tls-rustls = ["reqwest/rustls-tls"]
+tls-native = ["reqwest/native-tls"]
+
+[dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "signal", "fs", "io-util", "process"] }
+axum = "0.8"
+reqwest = { version = "0.12", default-features = false, features = [
+    "charset",
+    "http2",
+    "json",
+    "gzip",
+    "brotli",
+    "cookies",
+] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+url = "2"
+percent-encoding = "2"
+futures = "0.3"
+clap = { version = "4", features = ["derive"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+rand = "0.8"
+anyhow = "1"
+scraper = "0.21"
+async-trait = "0.1"
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"
+
+[profile.release.package."*"]
+opt-level = 3
