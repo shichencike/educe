@@ -31,9 +31,16 @@ jobs:
           targets: ${{ matrix.target }}
       - name: 安装 zig（交叉编译 musl 用）
         if: runner.os == 'Linux'
-        uses: mlugg/setup-zig@v1
-        with:
-          version: 0.16.0
+        shell: bash
+        run: |
+          # mlugg/setup-zig 依赖的 ziglang.org/builds 路径已 404（文件已迁移到
+          # /download/<version>/ 下）、镜像源也 502，改为直接下载官方发布链接；
+          # 官方失败时回退社区镜像，并用官方 sha256 校验完整性。
+          curl -fL --retry 3 https://ziglang.org/download/0.16.0/zig-x86_64-linux-0.16.0.tar.xz -o zig.tar.xz \
+            || curl -fL --retry 3 https://pkg.machengine.org/zig/zig-x86_64-linux-0.16.0.tar.xz -o zig.tar.xz
+          echo "70e49664a74374b48b51e6f3fdfbf437f6395d42509050588bd49abe52ba3d00  zig.tar.xz" | sha256sum -c -
+          tar -xf zig.tar.xz
+          echo "$PWD/zig-x86_64-linux-0.16.0" >> "$GITHUB_PATH"
       - name: 安装 cargo-zigbuild
         if: runner.os == 'Linux'
         run: cargo install cargo-zigbuild --locked --version 0.23.0
