@@ -47,11 +47,33 @@ pub struct SearchConfig {
 impl Default for SearchConfig {
     fn default() -> Self {
         SearchConfig {
-            max_per_source: 30,
+            max_per_source: 100,
             timeout_ms: 10_000,
-            max_results: 100,
+            max_results: 20_000,
             dedup: true,
             max_concurrent: 8,
+        }
+    }
+}
+
+/// 聚合结果 TTL 缓存。
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct CacheConfig {
+    /// 是否启用缓存
+    pub enabled: bool,
+    /// 缓存有效期（秒）
+    pub ttl_seconds: u64,
+    /// 最大条目数（0 = 不限制）
+    pub max_entries: usize,
+}
+
+impl Default for CacheConfig {
+    fn default() -> Self {
+        CacheConfig {
+            enabled: true,
+            ttl_seconds: 300,
+            max_entries: 200,
         }
     }
 }
@@ -124,6 +146,7 @@ impl Default for LoggingConfig {
 pub struct AppConfig {
     pub server: ServerConfig,
     pub search: SearchConfig,
+    pub cache: CacheConfig,
     pub proxy: ProxyConfig,
     /// 每源限速（请求/分钟），key 可为引擎 id 或 "default"
     pub rate_limit: HashMap<String, u32>,

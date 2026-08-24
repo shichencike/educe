@@ -27,7 +27,7 @@ pub struct SearchResult {
 impl SearchResult {
     pub fn new(title: String, url: String, snippet: String, source: &str, rank: usize) -> Self {
         SearchResult {
-            title,
+            title: clean_title(&title),
             url,
             snippet,
             source: source.to_string(),
@@ -36,6 +36,66 @@ impl SearchResult {
             published: None,
         }
     }
+}
+
+/// 已知的"站点后缀"标题模式（如 "xxx - 知乎" / "xxx_百度知道"）。
+const TITLE_SUFFIXES: &[&str] = &[
+    " - 知乎",
+    " - 知乎专栏",
+    " - 百度知道",
+    " - 百度百科",
+    " - CSDN博客",
+    " - CSDN",
+    " - 简书",
+    " - 掘金",
+    " - 博客园",
+    " - 菜鸟教程",
+    " - 廖雪峰的官方网站",
+    " - SegmentFault 思否",
+    " - 腾讯云开发者社区",
+    " - 阿里云开发者社区",
+    " - 哔哩哔哩",
+    " - 少数派",
+    " - 虎嗅网",
+    " - 36氪",
+    " - 豆瓣",
+    " - V2EX",
+    " - Gitee",
+    " - GitHub",
+    " - InfoQ",
+    "_知乎",
+    "_百度知道",
+    "_简书",
+    "_CSDN博客",
+];
+
+/// 清洗标题：去掉常见的"站点后缀"（如 "xxx - 知乎"），以及短的
+/// ` | 站点` / ` - 站点` 尾缀（站点名 ≤ 8 字符、不含空格/标点时）。
+pub fn clean_title(title: &str) -> String {
+    let t = title.trim();
+    if t.is_empty() {
+        return t.to_string();
+    }
+    for suffix in TITLE_SUFFIXES {
+        if t.ends_with(suffix) {
+            return t[..t.len() - suffix.len()].trim_end().to_string();
+        }
+    }
+    // 通用短尾缀：` | xxx` / ` - xxx` / `– xxx`，站点名短且无空格
+    for sep in [" | ", " - ", " – ", " - ", "｜"] {
+        if let Some(pos) = t.rfind(sep) {
+            let site = &t[pos + sep.len()..];
+            let site_len = site.chars().count();
+            if (1..=8).contains(&site_len)
+                && !site
+                    .chars()
+                    .any(|c| c.is_whitespace() || c == ',' || c == '.' || c == '、' || c == '，')
+            {
+                return t[..pos].trim_end().to_string();
+            }
+        }
+    }
+    t.to_string()
 }
 
 /// 引擎分类（用于 API 展示与前端分组）。
@@ -59,6 +119,30 @@ impl Category {
             Category::Chinese => "chinese",
             Category::Academic => "academic",
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn clean_title_strips_known_site_suffix() {
+        assert_eq!(clean_title("Rust 入门 - 知乎"), "Rust 入门");
+        assert_eq!(clean_title("HashMap 详解_CSDN博客"), "HashMap 详解");
+        assert_eq!(clean_title("无后缀标题"), "无后缀标题");
+    }
+
+    #[test]
+    fn clean_title_strips_short_generic_suffix() {
+        assert_eq!(clean_title("Rust 异步 | MDN"), "Rust 异步");
+        // 含空格/标点的尾缀保留（可能是正文一部分）
+        assert_eq!(clean_title("标题 - 很长的站点名称后缀超出八字符"), "标题 - 很长的站点名称后缀超出八字符");
+    }
+
+    #[test]
+    fn clean_title_keeps_empty() {
+        assert_eq!(clean_title(""), "");
     }
 }
 
@@ -114,6 +198,9 @@ pub struct SearchResponse {
     pub results: Vec<SearchResult>,
     /// 每源执行情况
     pub engines: Vec<EngineReport>,
+    /// 是否命中缓存（未命中/未启用时不序列化）
+    #[serde(skip_serializing_if = "is_false")]
+    pub cached: bool,
 }
 
 /// GET /api/sources 中单个引擎的描述。

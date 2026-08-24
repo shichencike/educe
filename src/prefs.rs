@@ -71,7 +71,8 @@ impl UserPrefs {
             );
         }
         UserPrefs {
-            results_per_page: cfg.search.max_results.clamp(10, 100),
+            // 默认每页 50；配置上限更小时随配置收缩，最小 10
+            results_per_page: cfg.search.max_results.min(50).max(10),
             engines,
             ..UserPrefs::default()
         }

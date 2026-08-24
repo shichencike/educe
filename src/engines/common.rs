@@ -36,6 +36,84 @@ pub fn absolute_url(base: &str, href: &str) -> Option<String> {
     base.join(href).ok().map(|u| u.to_string())
 }
 
+/// 还原常见搜索引擎跳转链（百度 link?url=、搜狗 link?url=、360 link?url=、
+/// Google /url?q=、Bing /ck/a?url=、知乎 link?target=、CSDN link?target=、
+/// 简书 go-wild?url= 等），取出真实目标 URL；非跳转链原样返回。
+pub fn unredirect_url(raw: &str) -> String {
+    let Ok(u) = Url::parse(raw) else {
+        return raw.to_string();
+    };
+    let host = u.host_str().unwrap_or("").to_lowercase();
+    let pairs: Vec<(String, String)> = u.query_pairs().map(|(k, v)| (k.into_owned(), v.into_owned())).collect();
+
+    // 目标参数的候选键（按引擎习惯）
+    let target_key = |keys: &[&str]| -> Option<String> {
+        pairs.iter().find_map(|(k, v)| {
+            if keys.contains(&k.as_str()) && !v.is_empty() {
+                Some(v.clone())
+            } else {
+                None
+            }
+        })
+    };
+
+    let decoded: Option<String> = if host.ends_with("baidu.com")
+        || host.ends_with("sogou.com")
+        || host.ends_with("so.com")
+    {
+        // baidu/sogou/360 的 link?url= 是 base64url 编码的 URL
+        target_key(&["url"]).and_then(|v| decode_base64_url(&v))
+    } else if host == "www.google.com"
+        || host == "www.google.com.hk"
+        || host.ends_with("google.com")
+        || host.ends_with("google.co.jp")
+    {
+        target_key(&["url", "q"]).map(|v| percent_decode(&v).unwrap_or(v))
+    } else if host.ends_with("bing.com") {
+        target_key(&["url"]).map(|v| percent_decode(&v).unwrap_or(v))
+    } else if host.ends_with("zhihu.com") || host.ends_with("csdn.net") {
+        target_key(&["target"]).map(|v| percent_decode(&v).unwrap_or(v))
+    } else if host.ends_with("jianshu.com") {
+        target_key(&["url"]).map(|v| percent_decode(&v).unwrap_or(v))
+    } else if host.ends_with("duckduckgo.com") {
+        target_key(&["uddg"]).map(|v| percent_decode(&v).unwrap_or(v))
+    } else {
+        None
+    };
+
+    match decoded {
+        Some(t) if t.starts_with("http://") || t.starts_with("https://") => t,
+        _ => raw.to_string(),
+    }
+}
+
+/// 解码 base64url（百度/搜狗/360 跳转链的 url 参数是 base64url，无填充）。
+fn decode_base64_url(s: &str) -> Option<String> {
+    let cleaned: String = s.chars().filter(|c| !c.is_whitespace()).collect();
+    if cleaned.is_empty() {
+        return None;
+    }
+    use base64::Engine as _;
+    // 补 padding 后按 URL_SAFE 解码；失败再按标准 base64 试一次
+    let mut b64 = cleaned.replace('-', "+").replace('_', "/");
+    while b64.len() % 4 != 0 {
+        b64.push('=');
+    }
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(&b64)
+        .or_else(|_| base64::engine::general_purpose::URL_SAFE.decode(&b64))
+        .ok()?;
+    String::from_utf8(bytes).ok()
+}
+
+fn percent_decode(s: &str) -> Option<String> {
+    use percent_encoding::percent_decode_str;
+    percent_decode_str(s)
+        .decode_utf8()
+        .ok()
+        .map(|c| c.into_owned())
+}
+
 /// 去除 URL 中的跟踪参数与片段，用于跨源去重。
 pub fn normalize_url(raw: &str) -> String {
     let Ok(mut u) = Url::parse(raw) else {
@@ -231,5 +309,34 @@ mod tests {
         assert_eq!(normalize_url("https://x.com/a/b/"), "https://x.com/a/b");
         // 根路径保留
         assert_eq!(normalize_url("https://x.com/"), "https://x.com/");
+    }
+
+    #[test]
+    fn unredirect_url_resolves_google() {
+        assert_eq!(
+            unredirect_url("https://www.google.com/url?q=https%3A%2F%2Frust-lang.org%2F&sa=U"),
+            "https://rust-lang.org/"
+        );
+    }
+
+    #[test]
+    fn unredirect_url_resolves_baidu_base64() {
+        // "https://rust-lang.org/" 的 base64url（无填充）
+        let target = "aHR0cHM6Ly9ydXN0LWxhbmcub3JnLw";
+        assert_eq!(
+            unredirect_url(&format!("https://www.baidu.com/link?url={target}")),
+            "https://rust-lang.org/"
+        );
+    }
+
+    #[test]
+    fn unredirect_url_keeps_normal_url() {
+        let u = "https://example.com/path?q=1";
+        assert_eq!(unredirect_url(u), u);
+        // 非 http 目标不解码
+        assert_eq!(
+            unredirect_url("https://www.baidu.com/link?url=javascript%3Aalert(1)"),
+            "https://www.baidu.com/link?url=javascript%3Aalert(1)"
+        );
     }
 }

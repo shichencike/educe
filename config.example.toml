@@ -7,11 +7,24 @@ host = "127.0.0.1"   # 监听地址；对外提供服务请改为 0.0.0.0
 port = 8080
 
 [search]
-max_per_source = 30   # 每个源最多返回的结果数（覆盖优先时调大）
+max_per_source = 100   # 每个源最多返回的结果数（覆盖优先时调大，建议 ≤ 200）
 timeout_ms = 10000    # 单个搜索源的超时上限
-max_results = 100     # 聚合去重后返回给前端的结果上限
+max_results = 20000   # 聚合去重后的总结果上限（前端可翻页至多 max_results 条）
 dedup = true          # 跨源去重合并
 max_concurrent = 8    # 同时请求的源数量上限（限流，降低目标站与网络压力）
+
+# 前端每页条数（默认 50，可设置）由用户偏好 results_per_page 控制，
+# 最小 10，上限不超过 max_results。
+
+# ---- 聚合结果缓存（可选）----
+# 相同查询在 TTL 内直接命中缓存，不重复请求各搜索引擎（省配额、降延迟）。
+# 内存优化：每个缓存条目只保存"当前页 ±1 页"的滑动窗口（约 3 页结果），
+# 翻到窗口外时重新聚合；更多已取回的页面由浏览器端 localStorage 暂存。
+# 设置了用户偏好权重覆盖的请求不参与缓存（排序依赖偏好）。
+[cache]
+enabled = true
+ttl_seconds = 300     # 缓存有效期（秒）
+max_entries = 200     # 最大条目数（0 = 不限制，淘汰最旧条目）
 
 # ---- 代理池（可选）----
 # 支持 http / https / socks5 协议；留空则直连。
@@ -52,9 +65,9 @@ sources = ["zhihu", "csdn", "jianshu", "wechat", "google"]
 # ---- 启用的搜索源（不写则全部启用）----
 [engines]
 enabled = [
-    "baidu", "bing", "duckduckgo", "sogou", "so360", "google",
+    "baidu", "bing", "duckduckgo", "sogou", "so360", "google", "startpage",
     "github", "stackoverflow", "gitee", "juejin",
-    "arxiv", "pubmed", "wikipedia", "googlenews",
+    "arxiv", "pubmed", "wikipedia", "googlenews", "xueshu",
     "zhihu", "csdn", "jianshu", "wechat",
 ]
 

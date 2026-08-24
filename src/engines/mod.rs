@@ -19,8 +19,10 @@ pub mod pubmed;
 pub mod so360;
 pub mod sogou;
 pub mod stackoverflow;
+pub mod startpage;
 pub mod wechat;
 pub mod wikipedia;
+pub mod xueshu;
 pub mod zhihu;
 
 use std::sync::Arc;
@@ -88,6 +90,7 @@ pub fn all_metas() -> Vec<EngineMeta> {
         sogou::META,
         so360::META,
         google::META,
+        startpage::META,
         github::META,
         stackoverflow::META,
         gitee::META,
@@ -96,6 +99,7 @@ pub fn all_metas() -> Vec<EngineMeta> {
         pubmed::META,
         wikipedia::META,
         googlenews::META,
+        xueshu::META,
         zhihu::META,
         csdn::META,
         jianshu::META,
@@ -128,6 +132,7 @@ pub fn build(cfg: &AppConfig, http: HttpClient) -> Vec<Arc<dyn Engine>> {
     register(Box::new(sogou::Sogou));
     register(Box::new(so360::So360));
     register(Box::new(google::Google));
+    register(Box::new(startpage::Startpage));
     register(Box::new(github::GitHub));
     register(Box::new(stackoverflow::StackOverflow));
     register(Box::new(gitee::Gitee));
@@ -136,6 +141,7 @@ pub fn build(cfg: &AppConfig, http: HttpClient) -> Vec<Arc<dyn Engine>> {
     register(Box::new(pubmed::PubMed));
     register(Box::new(wikipedia::Wikipedia));
     register(Box::new(googlenews::GoogleNews));
+    register(Box::new(xueshu::Xueshu));
     register(Box::new(zhihu::Zhihu));
     register(Box::new(csdn::Csdn));
     register(Box::new(jianshu::Jianshu));

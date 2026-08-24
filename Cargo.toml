@@ -35,6 +35,7 @@ toml = "0.8"
 url = "2"
 percent-encoding = "2"
 futures = "0.3"
+tokio-stream = { version = "0.1", features = ["sync"] }
 clap = { version = "4", features = ["derive"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
@@ -43,6 +44,7 @@ anyhow = "1"
 scraper = "0.21"
 async-trait = "0.1"
 thiserror = "2"
+base64 = "0.22"
 
 [profile.release]
 opt-level = "s"

@@ -8,21 +8,26 @@
 //! - `GET/POST/DELETE /api/prefs`  用户偏好（cookie 持久化）
 //! - `GET  /healthz`          健康检查
 
+use std::convert::Infallible;
 use std::sync::Arc;
 
 use axum::extract::{Path, Query, State};
 use axum::http::header::{COOKIE, SET_COOKIE};
 use axum::http::{HeaderMap, StatusCode};
+use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{Html, IntoResponse, Response};
 use axum::routing::{delete, get};
 use axum::{Json, Router};
+use futures::stream::{Stream, StreamExt};
+use tokio::sync::mpsc;
+use tokio_stream::wrappers::ReceiverStream;
 
 use crate::config::AppConfig;
 use crate::custom::CustomEngineConfig;
 use crate::models::{SearchQuery, SearchResponse};
 use crate::prefs::{extract_cookie, set_cookie_header, UserPrefs, PREFS_COOKIE, PREFS_MAX_AGE};
 use crate::runtime::RuntimeSettings;
-use crate::search::Aggregator;
+use crate::search::{Aggregator, StreamEvent};
 
 /// 内嵌单页前端
 const INDEX_HTML: &str = include_str!("web/index.html");
@@ -46,6 +51,8 @@ pub async fn serve(cfg: Arc<AppConfig>) -> anyhow::Result<()> {
         .route("/", get(index))
         .route("/settings.html", get(settings))
         .route("/api/search", get(search_handler))
+        .route("/api/search/stream", get(search_stream_handler))
+        .route("/api/suggest", get(suggest_handler))
         .route("/api/sources", get(sources_handler))
         .route(
             "/api/prefs",
@@ -202,8 +209,11 @@ async fn search_handler(
             Some(ids)
         }
     };
-    // 结果数：参数缺省用偏好
-    let max = q.max.unwrap_or(prefs.results_per_page).clamp(1, 200);
+    // 结果数：参数缺省用偏好；上限为配置的聚合上限（默认 20000）
+    let max = q
+        .max
+        .unwrap_or(prefs.results_per_page)
+        .clamp(1, st.cfg.search.max_results.max(1));
     let offset = q.offset.unwrap_or(0);
 
     let resp: SearchResponse = st
@@ -211,4 +221,78 @@ async fn search_handler(
         .search(&query, sources.as_deref(), offset, max, Some(&prefs))
         .await;
     Json(resp).into_response()
+}
+
+/// 流式聚合搜索（SSE）：逐源推送 `engine` 事件，全部完成后推送 `done` 事件。
+/// 前端渐进渲染，首屏显著提前。
+async fn search_stream_handler(
+    State(st): State<AppState>,
+    headers: HeaderMap,
+    Query(q): Query<SearchQuery>,
+) -> Response {
+    let query = q.q.trim().to_string();
+    if query.is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": "参数 q 不能为空"})),
+        )
+            .into_response();
+    }
+
+    let prefs = current_prefs(&st.cfg, &headers);
+    let sources: Option<Vec<String>> = match q.sources.as_ref() {
+        Some(s) if !s.trim().is_empty() => Some(
+            s.split(',')
+                .map(|x| x.trim().to_string())
+                .filter(|x| !x.is_empty())
+                .collect(),
+        ),
+        _ => {
+            let mut ids = prefs.enabled_engine_ids();
+            ids.extend(st.agg.custom_engine_ids());
+            Some(ids)
+        }
+    };
+    let max = q
+        .max
+        .unwrap_or(prefs.results_per_page)
+        .clamp(1, st.cfg.search.max_results.max(1));
+    let offset = q.offset.unwrap_or(0);
+
+    let (tx, rx) = mpsc::channel::<StreamEvent>(16);
+    let agg = st.agg.clone();
+    // 后台执行聚合搜索，事件经 channel 推给 SSE 流
+    tokio::spawn(async move {
+        let _ = agg
+            .search_stream(&query, sources.as_deref(), offset, max, Some(&prefs), tx)
+            .await;
+    });
+
+    let stream: std::pin::Pin<
+        Box<dyn Stream<Item = Result<Event, Infallible>> + Send>,
+    > = Box::pin(ReceiverStream::new(rx).map(|ev| {
+        let json = serde_json::to_string(&ev).unwrap_or_else(|_| "{}".into());
+        Ok(Event::default().data(json))
+    }));
+    Sse::new(stream)
+        .keep_alive(KeepAlive::default())
+        .into_response()
+}
+
+/// 搜索建议（自动补全）：`GET /api/suggest?q=<关键词>`，返回 `{query, suggestions: [...]}`。
+/// 代理 DuckDuckGo / 百度建议接口，供前端输入框下拉使用。
+async fn suggest_handler(
+    State(st): State<AppState>,
+    Query(q): Query<SearchQuery>,
+) -> Response {
+    let query = q.q.trim().to_string();
+    if query.is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": "参数 q 不能为空"})),
+        )
+            .into_response();
+    }
+    let suggestions = st.agg.suggest(&query).await;
+    Json(serde_json::json!({"query": query, "suggestions": suggestions})).into_response()
 }

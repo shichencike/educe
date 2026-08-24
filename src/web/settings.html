@@ -2,98 +2,159 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>设置 · Educe</title>
 <style>
+  /* ===== 主题变量（与搜索页保持一致）===== */
   :root {
-    --bg: #0f1117; --panel: #171a23; --panel2: #1e2230; --border: #2a2f3f;
-    --text: #e6e8ee; --muted: #9aa1b3; --accent: #5b8cff; --accent2: #7c5bff;
+    --bg: #0e1117; --panel: #161b26; --panel2: #1e2432; --border: #2a3142;
+    --text: #e6e9f2; --muted: #98a1b8; --accent: #5b8cff; --accent2: #7c5bff;
     --ok: #3ecf8e; --err: #ff6b6b; --warn: #f0b429;
+    --radius: 14px; --shadow: 0 6px 24px rgba(0,0,0,.28);
   }
   body.light {
-    --bg: #f5f6fa; --panel: #ffffff; --panel2: #f0f2f7; --border: #d9dee9;
-    --text: #1c2230; --muted: #5d6679;
+    --bg: #f4f6fb; --panel: #ffffff; --panel2: #eef1f8; --border: #d8deec;
+    --text: #1b2233; --muted: #5c6678;
+    --shadow: 0 6px 20px rgba(30,40,80,.08);
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
   body {
     background: var(--bg); color: var(--text);
-    font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
-    min-height: 100vh;
+    font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+    min-height: calc(var(--vh, 1vh) * 100);
+    -webkit-tap-highlight-color: transparent;
+    transition: background .25s, color .25s;
   }
-  .wrap { max-width: 760px; margin: 0 auto; padding: 24px 16px 60px; }
-  header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 22px; }
-  header h1 { font-size: 24px; }
-  header h1 a {
+  a { color: inherit; text-decoration: none; }
+  button { font-family: inherit; }
+  .wrap { max-width: 760px; margin: 0 auto; padding: 0 16px 60px; }
+
+  /* ===== 顶栏 ===== */
+  .topbar {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 16px 0; margin-bottom: 16px;
+  }
+  .topbar h1 { font-size: 22px; font-weight: 800; }
+  .topbar h1 a {
     background: linear-gradient(90deg, var(--accent), var(--accent2));
     -webkit-background-clip: text; background-clip: text; color: transparent;
-    text-decoration: none;
   }
-  header .back { color: var(--muted); text-decoration: none; font-size: 14px; }
-  header .back:hover { color: var(--accent); }
+  .topbar .back {
+    color: var(--muted); font-size: 14px; padding: 7px 13px; border-radius: 999px;
+    border: 1px solid var(--border); background: var(--panel); white-space: nowrap;
+    transition: color .15s, border-color .15s;
+  }
+  .topbar .back:hover { color: var(--accent); border-color: var(--accent); }
 
   .section {
     background: var(--panel); border: 1px solid var(--border);
-    border-radius: 12px; padding: 18px 20px; margin-bottom: 18px;
+    border-radius: var(--radius); padding: 18px 20px; margin-bottom: 18px;
+    box-shadow: var(--shadow);
   }
-  .section h2 { font-size: 15px; color: var(--muted); margin-bottom: 14px; font-weight: 600; }
+  .section h2 { font-size: 15px; color: var(--muted); margin-bottom: 14px; font-weight: 700; }
 
-  .row { display: flex; align-items: center; justify-content: space-between; padding: 8px 0; border-bottom: 1px dashed var(--border); }
+  .row { display: flex; align-items: center; justify-content: space-between; padding: 10px 0; border-bottom: 1px dashed var(--border); }
   .row:last-child { border-bottom: none; }
   .row label { font-size: 14px; }
-  .row .hint { display: block; font-size: 12px; color: var(--muted); margin-top: 2px; }
-  .row select, .row input[type=number] {
+  .row .hint { display: block; font-size: 12px; color: var(--muted); margin-top: 2px; line-height: 1.5; }
+  .row select, .row input[type=number], .row input[type=text], .row textarea {
     background: var(--panel2); color: var(--text); border: 1px solid var(--border);
-    border-radius: 8px; padding: 6px 10px; font-size: 13px; outline: none;
+    border-radius: 10px; padding: 7px 11px; font-size: 13px; outline: none;
+    transition: border-color .15s;
   }
+  .row select:focus, .row input:focus, .row textarea:focus { border-color: var(--accent); }
   .row input[type=number] { width: 110px; }
-  .row input[type=checkbox] { accent-color: var(--accent); width: 18px; height: 18px; cursor: pointer; }
-  .row input[type=text], .row textarea {
-    background: var(--panel2); color: var(--text); border: 1px solid var(--border);
-    border-radius: 8px; padding: 6px 10px; font-size: 13px; outline: none;
+  .row input[type=text] { width: 280px; max-width: 55vw; }
+  .row textarea { width: 300px; max-width: 55vw; font-family: inherit; resize: vertical; }
+
+  /* Chrome 70 兼容：不用 accent-color，自绘复选框（appearance:none）*/
+  .row input[type=checkbox] {
+    -webkit-appearance: none; appearance: none;
+    width: 19px; height: 19px; border: 2px solid var(--border); border-radius: 6px;
+    background: var(--panel2); cursor: pointer; flex-shrink: 0;
+    transition: background .15s, border-color .15s;
   }
-  .row input[type=text] { width: 280px; }
-  .row textarea { width: 300px; font-family: inherit; resize: vertical; }
+  .row input[type=checkbox]:checked { background: var(--accent); border-color: var(--accent); }
+  .row input[type=checkbox]:active { transform: scale(.9); }
+
   .btns .del {
     background: transparent; color: var(--err); border: 1px solid var(--border);
-    border-radius: 8px; padding: 5px 14px; cursor: pointer; font-size: 13px;
+    border-radius: 999px; padding: 5px 14px; cursor: pointer; font-size: 13px;
+    transition: border-color .15s;
   }
   .btns .del:hover { border-color: var(--err); }
 
   .engine-row {
-    display: grid; grid-template-columns: 1fr auto auto; gap: 12px;
-    align-items: center; padding: 7px 0; border-bottom: 1px dashed var(--border);
+    display: flex; align-items: center; padding: 8px 0; border-bottom: 1px dashed var(--border);
     font-size: 14px;
   }
+  .engine-row:last-child { border-bottom: none; }
+  .engine-row .ename { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .engine-row .ename .cat {
     font-size: 11px; color: var(--muted); border: 1px solid var(--border);
-    border-radius: 6px; padding: 1px 6px; margin-left: 6px;
+    border-radius: 999px; padding: 1px 7px; margin-left: 6px;
   }
-  .engine-row .ename .jsb { color: var(--warn); font-size: 11px; }
-  .engine-row .ctl { display: flex; align-items: center; gap: 8px; }
-  .engine-row input[type=checkbox] { accent-color: var(--accent); width: 17px; height: 17px; cursor: pointer; }
+  .engine-row .ename .jsb { color: var(--warn); font-size: 11px; margin-left: 5px; }
+  .engine-row .ctl { display: flex; align-items: center; margin-left: 10px; }
+  .engine-row .ctl > * { margin-right: 8px; }
+  .engine-row .ctl > *:last-child { margin-right: 0; }
+  .engine-row input[type=checkbox] {
+    -webkit-appearance: none; appearance: none;
+    width: 17px; height: 17px; border: 2px solid var(--border); border-radius: 5px;
+    background: var(--panel2); cursor: pointer; flex-shrink: 0;
+    transition: background .15s, border-color .15s;
+  }
+  .engine-row input[type=checkbox]:checked { background: var(--accent); border-color: var(--accent); }
   .engine-row input[type=number] {
     width: 76px; background: var(--panel2); color: var(--text);
-    border: 1px solid var(--border); border-radius: 8px; padding: 4px 8px; font-size: 13px;
+    border: 1px solid var(--border); border-radius: 8px; padding: 4px 8px; font-size: 13px; outline: none;
   }
+  .engine-row .lab { font-size: 12px; color: var(--muted); }
 
-  .btns { display: flex; gap: 12px; margin-top: 4px; }
+  .btns { display: flex; flex-wrap: wrap; margin-top: 4px; }
+  .btns > button, .btns > .btn-group { margin-right: 12px; margin-bottom: 8px; }
+  .btns > *:last-child { margin-right: 0; }
   .btns button {
-    padding: 10px 26px; border: none; border-radius: 10px; cursor: pointer;
-    font-size: 14px; font-weight: 600;
+    padding: 11px 26px; border: none; border-radius: 999px; cursor: pointer;
+    font-size: 14px; font-weight: 600; transition: transform .1s, opacity .15s;
   }
+  .btns button:active { transform: scale(.96); }
   .btns .save { background: linear-gradient(90deg, var(--accent), var(--accent2)); color: #fff; }
   .btns .reset { background: var(--panel2); color: var(--muted); border: 1px solid var(--border); }
-  #msg { margin-top: 12px; font-size: 13px; min-height: 20px; }
+  .btns .mini {
+    background: transparent; color: var(--accent); border: 1px solid var(--border);
+    padding: 6px 14px; font-size: 12px; font-weight: 500; border-radius: 999px;
+  }
+  .btn-group { display: flex; }
+  .btn-group .mini { margin-right: 8px; }
+  .btn-group .mini:last-child { margin-right: 0; }
+  #msg { margin-top: 14px; font-size: 13px; min-height: 20px; }
   #msg.ok { color: var(--ok); }
   #msg.err { color: var(--err); }
+  #msgCustom { margin-top: 10px; font-size: 13px; min-height: 20px; }
+  #msgCustom.ok { color: var(--ok); }
+  #msgCustom.err { color: var(--err); }
+
+  /* ===== 响应式（移动端）===== */
+  @media (max-width: 640px) {
+    .wrap { padding: 0 12px 50px; }
+    .topbar { padding: 12px 0; }
+    .section { padding: 15px 14px; }
+    .row { flex-wrap: wrap; }
+    .row label { width: 100%; margin-bottom: 6px; }
+    .row select, .row input[type=number], .row input[type=text], .row textarea { width: 100%; max-width: none; }
+    .engine-row { flex-wrap: wrap; }
+    .engine-row .ename { width: 100%; margin-bottom: 4px; }
+  }
 </style>
 </head>
 <body>
 <div class="wrap">
-  <header>
+  <div class="topbar">
     <h1><a href="/">Educe</a> 设置</h1>
     <a class="back" href="/">← 返回搜索</a>
-  </header>
+  </div>
 
   <div class="section">
     <h2>常规</h2>
@@ -108,11 +169,12 @@
     </div>
     <div class="row">
       <label>主题
-        <span class="hint">深浅色外观</span>
+        <span class="hint">auto = 跟随系统（不支持时回退深色）</span>
       </label>
       <select id="theme">
         <option value="dark">深色</option>
         <option value="light">浅色</option>
+        <option value="auto">跟随系统</option>
       </select>
     </div>
     <div class="row">
@@ -121,9 +183,12 @@
       </label>
       <select id="rpp">
         <option value="10">10</option>
+        <option value="20">20</option>
         <option value="30">30</option>
         <option value="50">50</option>
         <option value="100">100</option>
+        <option value="200">200</option>
+        <option value="500">500</option>
       </select>
     </div>
     <div class="row">
@@ -142,6 +207,12 @@
 
   <div class="section">
     <h2>搜索引擎</h2>
+    <div class="btns" style="margin-bottom:10px">
+      <div class="btn-group">
+        <button class="mini" onclick="setAllEngines(true)">全选</button>
+        <button class="mini" onclick="setAllEngines(false)">全不选</button>
+      </div>
+    </div>
     <div id="engines"><!-- 引擎行由 /api/prefs 填充 --></div>
   </div>
 
@@ -274,6 +345,25 @@
 </div>
 
 <script>
+// ===== 工具 =====
+const $ = (id) => document.getElementById(id);
+function esc(s) { const d = document.createElement('div'); d.textContent = s == null ? '' : String(s); return d.innerHTML; }
+function msg(t, isErr) { const m = $('msg'); m.textContent = t; m.className = isErr ? 'err' : 'ok'; }
+
+// ===== 主题预览（与搜索页一致：auto 跟随系统）=====
+function systemPrefersLight() {
+  try {
+    if (!window.matchMedia) return false;
+    return window.matchMedia('(prefers-color-scheme: light)').matches;
+  } catch (e) { return false; }
+}
+function applyThemePreview() {
+  const pref = prefs.theme || 'dark';
+  let light = pref === 'light';
+  if (pref === 'auto') light = systemPrefersLight();
+  document.body.classList.toggle('light', light);
+}
+
 let prefs = { lang: 'zh', theme: 'dark', results_per_page: 50, open_in_new_tab: true, timeout_ms: 0, engines: {} };
 
 async function load() {
@@ -286,42 +376,55 @@ async function load() {
     $('newtab').checked = prefs.open_in_new_tab !== false;
     $('timeout').value = prefs.timeout_ms || 0;
     renderEngines();
-    // 立即应用主题（供本页预览）
-    document.body.classList.toggle('light', (prefs.theme || 'dark') === 'light');
+    applyThemePreview();
   } catch (e) {
     msg('加载偏好失败: ' + e.message, true);
   }
 }
-
 function renderEngines() {
   const box = $('engines');
   box.innerHTML = '';
   const catName = { general: '通用', code: '代码', chinese: '中文', academic: '学术' };
-  for (const [id, p] of Object.entries(prefs.engines || {})) {
+  const ids = Object.keys(prefs.engines || {});
+  for (let i = 0; i < ids.length; i++) {
+    const id = ids[i];
+    const p = prefs.engines[id];
     const row = document.createElement('div');
     row.className = 'engine-row';
-    row.innerHTML = `
-      <div class="ename">${esc(id)}<span class="cat">${catName[metaCat[id]] || '源'}</span>
-        ${metaJs[id] ? '<span class="jsb">需JS</span>' : ''}</div>
-      <div class="ctl">
-        <input type="checkbox" data-enable="${esc(id)}" ${p.enabled ? 'checked' : ''}>
-        <span style="font-size:12px;color:var(--muted)">启用</span>
-      </div>
-      <div class="ctl">
-        <input type="number" step="0.1" min="0" placeholder="权重"
-          data-weight="${esc(id)}" value="${p.weight != null ? p.weight : ''}">
-        <span style="font-size:12px;color:var(--muted)">权重</span>
-      </div>`;
+    row.innerHTML =
+      '<div class="ename">' + esc(id) +
+      '<span class="cat">' + (catName[metaCat[id]] || '源') + '</span>' +
+      (metaJs[id] ? '<span class="jsb">需JS</span>' : '') + '</div>' +
+      '<div class="ctl">' +
+      '<input type="checkbox" data-enable="' + esc(id) + '"' + (p.enabled ? ' checked' : '') + '>' +
+      '<span class="lab">启用</span>' +
+      '</div>' +
+      '<div class="ctl">' +
+      '<input type="number" step="0.1" min="0" placeholder="权重" data-weight="' + esc(id) + '"' +
+      ' value="' + (p.weight != null ? p.weight : '') + '">' +
+      '<span class="lab">权重</span>' +
+      '</div>';
     box.appendChild(row);
+  }
+}
+
+// 全选 / 全不选所有引擎（仅修改勾选状态，需点击保存生效）
+function setAllEngines(on) {
+  const ids = Object.keys(prefs.engines || {});
+  for (let i = 0; i < ids.length; i++) {
+    const en = document.querySelector('[data-enable="' + ids[i] + '"]');
+    if (en) en.checked = on;
   }
 }
 
 function save() {
   const engines = {};
-  for (const [id] of Object.entries(prefs.engines || {})) {
-    const en = document.querySelector(`[data-enable="${id}"]`);
-    const w = document.querySelector(`[data-weight="${id}"]`);
+  const ids = Object.keys(prefs.engines || {});
+  for (let i = 0; i < ids.length; i++) {
+    const id = ids[i];
+    const en = document.querySelector('[data-enable="' + id + '"]');
     if (!en) continue;
+    const w = document.querySelector('[data-weight="' + id + '"]');
     const wv = w && w.value !== '' ? parseFloat(w.value) : null;
     engines[id] = { enabled: en.checked, weight: (wv != null && isFinite(wv) && wv >= 0) ? wv : null };
   }
@@ -348,10 +451,6 @@ function reset() {
     .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); location.reload(); })
     .catch(e => msg('恢复失败: ' + e.message, true));
 }
-
-const $ = id => document.getElementById(id);
-function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
-function msg(t, isErr) { const m = $('msg'); m.textContent = t; m.className = isErr ? 'err' : 'ok'; }
 
 // 引擎分类/JS 标记（从 /api/sources 拉取，或回退为空）
 let metaCat = {}, metaJs = {};
@@ -413,11 +512,13 @@ function renderCustom() {
     return;
   }
   box.innerHTML = customEngines.map(c =>
-    `<div class="engine-row">
-      <div class="ename">${esc(c.name)} <span class="cat">${esc(c.id)}</span>${c.needs_js ? '<span class="jsb">需JS</span>' : ''}</div>
-      <div class="ctl" style="min-width:0;overflow:hidden;text-overflow:ellipsis"><span style="font-size:12px;color:var(--muted)">${esc(c.url_template)}</span></div>
-      <div class="ctl"><button class="del" onclick="delCustom('${esc(c.id)}')">删除</button></div>
-    </div>`).join('');
+    '<div class="engine-row">' +
+    '<div class="ename">' + esc(c.name) + ' <span class="cat">' + esc(c.id) + '</span>' +
+    (c.needs_js ? '<span class="jsb">需JS</span>' : '') + '</div>' +
+    '<div class="ctl" style="min-width:0;overflow:hidden;text-overflow:ellipsis">' +
+    '<span class="lab">' + esc(c.url_template) + '</span></div>' +
+    '<div class="ctl"><button class="del" onclick="delCustom(\'' + esc(c.id) + '\')">删除</button></div>' +
+    '</div>').join('');
 }
 
 function addCustom() {
@@ -466,6 +567,7 @@ function delCustom(id) {
 load();
 loadRuntime();
 loadCustom();
+
 </script>
 </body>
 </html>

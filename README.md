@@ -6,23 +6,28 @@
 
 ## 特性
 
-- 🌐 聚合 **18 个搜索源**（通用 / 代码技术 / 中文内容 / 学术媒体），模块化适配器，新增源只需一个文件
+- 🌐 聚合 **20 个搜索源**（通用 / 代码技术 / 中文内容 / 学术媒体），模块化适配器，新增源只需一个文件
 - 🔀 **并发调度**：各源独立执行，单源超时/失败只影响该源，其余正常返回
-- 🧹 **去重合并**：URL 规范化（去跟踪参数/片段）后跨源合并，来源并列展示
-- ⭐ **加权评分**：引擎权重 × 排名位置 × 标题命中关键词，多源佐证自动加分
+- 🧹 **去重合并**：URL 规范化（**跳转链还原** + 去跟踪参数/片段）后跨源合并，来源并列展示，前端点击直达真实地址
+- ⭐ **加权评分**：引擎权重 × 排名位置 × 标题/摘要命中关键词（英文词边界匹配），多源佐证自动加分
+- ✂️ **标题清洗**：自动去除 "xxx - 知乎 / _CSDN博客" 等站点后缀，摘要跨源择优取最长
+- ⚡ **SSE 流式响应**：`/api/search/stream` 逐引擎推送，前端渐进渲染，首屏大幅提前（不支持 SSE 时自动降级为普通接口）
+- 🔮 **搜索建议**：`/api/suggest` 代理 DuckDuckGo/百度建议接口，前端输入框实时下拉补全
+- 🗄 **TTL 结果缓存**：相同查询 5 分钟内直接命中，省配额、降延迟（有用户权重覆盖时自动跳过）
 - 🕶 **基础反爬**：UA 轮换、随机请求头、会话 cookie、每源限速、代理池（HTTP/SOCKS5 轮换）
 - 🖥 **可选 JS 渲染桥**：知乎/CSDN/简书/微信公众号/Google 等需要执行 JS 的源，交给外部 Node+puppeteer 渲染后回传 HTML 解析，并带通用兜底提取器
+- 📱 **SearXNG 风格前端**：搜索建议下拉、即时搜索防抖、键盘导航（↑↓ 选建议 / ←→ 翻页 / Enter 搜索）、分页、结果卡片增强（域名/关键词高亮/来源徽章）、响应式移动端，兼容安卓 8.1（Chrome 70 级 WebView）
 - 📦 **单二进制分发**：内嵌单页前端（零静态文件）、Web + API + CLI 三合一
 
 ## 搜索源一览
 
 | 分类 | id | 名称 | 需 JS 桥 |
 | --- | --- | --- | --- |
-| 通用 | baidu / bing / duckduckgo / sogou / so360 | 百度 / 必应 / DuckDuckGo / 搜狗 / 360 搜索 | 否 |
+| 通用 | baidu / bing / duckduckgo / sogou / so360 / startpage | 百度 / 必应 / DuckDuckGo / 搜狗 / 360 搜索 / Startpage | 否 |
 | 通用 | google | Google | 是（可回退轻量 HTML） |
 | 代码 | github / stackoverflow / gitee / juejin | GitHub / Stack Overflow / Gitee / 掘金 | 否 |
 | 中文 | zhihu / csdn / jianshu / wechat | 知乎 / CSDN / 简书 / 微信公众号 | 是 |
-| 学术 | arxiv / pubmed / wikipedia / googlenews | arXiv / PubMed / 维基百科 / Google 新闻 | 否 |
+| 学术 | arxiv / pubmed / wikipedia / googlenews / xueshu | arXiv / PubMed / 维基百科 / Google 新闻 / 百度学术 | 否 |
 
 ## 快速开始
 
@@ -55,7 +60,7 @@ educe sources                            # 查看引擎清单
 | 平台 | 命令 | 说明 |
 | --- | --- | --- |
 | Windows | `powershell -File scripts/build-windows.ps1` | schannel TLS，零 C 依赖，产出单个 exe |
-| Linux (x86_64/ARM64) | `bash scripts/build-musl.sh` | musl 全静态，需 cargo-zigbuild 或 docker |
+| Linux (x86_64/ARM64) | `bash scripts/build-musl.sh` | musl 全静态，需 cargo-zigbuild + zig |
 | Termux (Android) | `pkg install rust && bash scripts/build-termux.sh` | 本机构建（bionic） |
 | 全平台 | 打 `v*` tag 推 GitHub，走 `.github/workflows/release.yml` | 自动产出三平台二进制 |
 
@@ -73,6 +78,12 @@ max_per_source = 30    # 每源最多结果数（覆盖优先调大）
 timeout_ms = 10000     # 单源超时
 max_results = 100      # 聚合后返回上限
 dedup = true           # 跨源去重合并
+max_concurrent = 8     # 同时请求的源数量上限
+
+[cache]                # 聚合结果 TTL 缓存
+enabled = true
+ttl_seconds = 300      # 缓存有效期（秒）
+max_entries = 200      # 最大条目数（0 = 不限制）
 
 [proxy]                # 代理池：http/https/socks5，轮换或随机
 enabled = false
@@ -117,6 +128,7 @@ export CHROME_PATH=/path/to/chrome   # 指定本机 Chrome/Chromium
   "query": "rust 异步",
   "total": 42,
   "time_ms": 3200,
+  "cached": true,
   "results": [
     {
       "title": "…",
@@ -137,6 +149,25 @@ export CHROME_PATH=/path/to/chrome   # 指定本机 Chrome/Chromium
 
 - `sources` 留空 = 全部启用源；`error` 非空表示该源失败（不影响其他源）
 - 结果 `source` 为逗号分隔的合并来源列表
+- `cached` 为 true 表示命中 TTL 缓存（`engines` 为空数组）；未命中/未启用时该字段省略
+- 结果 `url` 已做**跳转链还原**（百度/Google/Bing/搜狗/360/知乎/CSDN 等的 link?url= 跳转还原为真实目标地址）
+
+### `GET /api/search/stream?q=…&sources=…&max=50&offset=0`（SSE）
+
+流式接口：每完成一个源推送一条 `engine` 事件，全部完成后推送 `done` 事件（含最终排序分页结果）。前端据此渐进渲染，首屏显著提前；不支持 SSE 的客户端可回退普通接口。
+
+```
+data: {"type":"engine","id":"bing","count":12,"time_ms":800,"error":null,"retried":false,"results":[…]}
+data: {"type":"done","total":42,"time_ms":3200,"results":[…]}
+```
+
+### `GET /api/suggest?q=<关键词>`
+
+搜索建议（自动补全），代理 DuckDuckGo/百度建议接口：
+
+```json
+{ "query": "rust", "suggestions": ["rust 教程", "rust 语言", "…"] }
+```
 
 ### `GET /api/sources`
 
@@ -151,7 +182,7 @@ export CHROME_PATH=/path/to/chrome   # 指定本机 Chrome/Chromium
 `/settings.html` 提供浏览器端设置（无需登录），偏好存于 cookie `educe_prefs`（percent 编码 JSON）：
 
 - **常规**：界面语言、主题（深/浅）、每页结果数（`max` 缺省值）、结果新标签打开、单源超时
-- **引擎**：每个源独立 启用/禁用 与 权重（权重留空 = 用配置文件）
+- **引擎**：每个源独立 启用/禁用 与 权重（权重留空 = 用配置文件），支持一键全选/全不选
 
 | 接口 | 说明 |
 | --- | --- |
@@ -173,13 +204,14 @@ export CHROME_PATH=/path/to/chrome   # 指定本机 Chrome/Chromium
 src/
 ├── main.rs        # CLI 入口（serve/sources/search/gen-config）
 ├── config.rs      # 配置加载（默认值+文件+环境变量覆盖）
+├── cache.rs       # 聚合结果 TTL 内存缓存
 ├── http.rs        # HTTP 客户端池、UA 轮换、代理池、限速器
 ├── jsrender.rs    # JS 渲染桥（外部命令渲染 HTML）
 ├── models.rs      # 数据模型
-├── search.rs      # 聚合调度、去重合并、评分排序
-├── server.rs      # axum API + 内嵌前端
-├── engines/       # 18 个搜索源适配器
-└── web/index.html # 单页前端
+├── search.rs      # 聚合调度（含 SSE 流式）、去重合并、评分排序、搜索建议
+├── server.rs      # axum API（含 /api/search/stream SSE）+ 内嵌前端
+├── engines/       # 20 个搜索源适配器
+└── web/index.html # 单页前端（SearXNG 风格，兼容安卓 8.1）
 js-exec/           # Node 渲染脚本（puppeteer-core）
 scripts/           # 各平台构建脚本
 ```
