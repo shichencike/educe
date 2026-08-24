@@ -44,7 +44,10 @@ pub fn unredirect_url(raw: &str) -> String {
         return raw.to_string();
     };
     let host = u.host_str().unwrap_or("").to_lowercase();
-    let pairs: Vec<(String, String)> = u.query_pairs().map(|(k, v)| (k.into_owned(), v.into_owned())).collect();
+    let pairs: Vec<(String, String)> = u
+        .query_pairs()
+        .map(|(k, v)| (k.into_owned(), v.into_owned()))
+        .collect();
 
     // 目标参数的候选键（按引擎习惯）
     let target_key = |keys: &[&str]| -> Option<String> {
@@ -57,29 +60,27 @@ pub fn unredirect_url(raw: &str) -> String {
         })
     };
 
-    let decoded: Option<String> = if host.ends_with("baidu.com")
-        || host.ends_with("sogou.com")
-        || host.ends_with("so.com")
-    {
-        // baidu/sogou/360 的 link?url= 是 base64url 编码的 URL
-        target_key(&["url"]).and_then(|v| decode_base64_url(&v))
-    } else if host == "www.google.com"
-        || host == "www.google.com.hk"
-        || host.ends_with("google.com")
-        || host.ends_with("google.co.jp")
-    {
-        target_key(&["url", "q"]).map(|v| percent_decode(&v).unwrap_or(v))
-    } else if host.ends_with("bing.com") {
-        target_key(&["url"]).map(|v| percent_decode(&v).unwrap_or(v))
-    } else if host.ends_with("zhihu.com") || host.ends_with("csdn.net") {
-        target_key(&["target"]).map(|v| percent_decode(&v).unwrap_or(v))
-    } else if host.ends_with("jianshu.com") {
-        target_key(&["url"]).map(|v| percent_decode(&v).unwrap_or(v))
-    } else if host.ends_with("duckduckgo.com") {
-        target_key(&["uddg"]).map(|v| percent_decode(&v).unwrap_or(v))
-    } else {
-        None
-    };
+    let decoded: Option<String> =
+        if host.ends_with("baidu.com") || host.ends_with("sogou.com") || host.ends_with("so.com") {
+            // baidu/sogou/360 的 link?url= 是 base64url 编码的 URL
+            target_key(&["url"]).and_then(|v| decode_base64_url(&v))
+        } else if host == "www.google.com"
+            || host == "www.google.com.hk"
+            || host.ends_with("google.com")
+            || host.ends_with("google.co.jp")
+        {
+            target_key(&["url", "q"]).map(|v| percent_decode(&v).unwrap_or(v))
+        } else if host.ends_with("bing.com") {
+            target_key(&["url"]).map(|v| percent_decode(&v).unwrap_or(v))
+        } else if host.ends_with("zhihu.com") || host.ends_with("csdn.net") {
+            target_key(&["target"]).map(|v| percent_decode(&v).unwrap_or(v))
+        } else if host.ends_with("jianshu.com") {
+            target_key(&["url"]).map(|v| percent_decode(&v).unwrap_or(v))
+        } else if host.ends_with("duckduckgo.com") {
+            target_key(&["uddg"]).map(|v| percent_decode(&v).unwrap_or(v))
+        } else {
+            None
+        };
 
     match decoded {
         Some(t) if t.starts_with("http://") || t.starts_with("https://") => t,

@@ -137,7 +137,10 @@ mod tests {
     fn clean_title_strips_short_generic_suffix() {
         assert_eq!(clean_title("Rust 异步 | MDN"), "Rust 异步");
         // 含空格/标点的尾缀保留（可能是正文一部分）
-        assert_eq!(clean_title("标题 - 很长的站点名称后缀超出八字符"), "标题 - 很长的站点名称后缀超出八字符");
+        assert_eq!(
+            clean_title("标题 - 很长的站点名称后缀超出八字符"),
+            "标题 - 很长的站点名称后缀超出八字符"
+        );
     }
 
     #[test]

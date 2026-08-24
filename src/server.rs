@@ -268,12 +268,11 @@ async fn search_stream_handler(
             .await;
     });
 
-    let stream: std::pin::Pin<
-        Box<dyn Stream<Item = Result<Event, Infallible>> + Send>,
-    > = Box::pin(ReceiverStream::new(rx).map(|ev| {
-        let json = serde_json::to_string(&ev).unwrap_or_else(|_| "{}".into());
-        Ok(Event::default().data(json))
-    }));
+    let stream: std::pin::Pin<Box<dyn Stream<Item = Result<Event, Infallible>> + Send>> =
+        Box::pin(ReceiverStream::new(rx).map(|ev| {
+            let json = serde_json::to_string(&ev).unwrap_or_else(|_| "{}".into());
+            Ok(Event::default().data(json))
+        }));
     Sse::new(stream)
         .keep_alive(KeepAlive::default())
         .into_response()
@@ -281,10 +280,7 @@ async fn search_stream_handler(
 
 /// 搜索建议（自动补全）：`GET /api/suggest?q=<关键词>`，返回 `{query, suggestions: [...]}`。
 /// 代理 DuckDuckGo / 百度建议接口，供前端输入框下拉使用。
-async fn suggest_handler(
-    State(st): State<AppState>,
-    Query(q): Query<SearchQuery>,
-) -> Response {
+async fn suggest_handler(State(st): State<AppState>, Query(q): Query<SearchQuery>) -> Response {
     let query = q.q.trim().to_string();
     if query.is_empty() {
         return (

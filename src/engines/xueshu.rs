@@ -148,7 +148,10 @@ mod tests {
         let out = xu.parse_html(html, 10);
         assert_eq!(out.len(), 2);
         assert_eq!(out[0].title, "异步编程研究");
-        assert_eq!(out[0].url, "https://xueshu.baidu.com/usercenter/paper/show?paperid=1");
+        assert_eq!(
+            out[0].url,
+            "https://xueshu.baidu.com/usercenter/paper/show?paperid=1"
+        );
         assert_eq!(out[0].published.as_deref(), Some("2023"));
         assert_eq!(out[1].url, "https://xueshu.baidu.com/paper/2");
         assert_eq!(out[0].source, "xueshu");

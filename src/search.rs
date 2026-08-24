@@ -332,7 +332,8 @@ impl Aggregator {
         max: usize,
         prefs: Option<&UserPrefs>,
     ) -> SearchResponse {
-        self.search_impl(query, sources, offset, max, prefs, None).await
+        self.search_impl(query, sources, offset, max, prefs, None)
+            .await
     }
 
     /// 流式聚合搜索：每源完成后经 `tx` 推送 `StreamEvent::Engine`，

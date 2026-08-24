@@ -72,7 +72,13 @@ impl Startpage {
                 .find_map(|s| el.select(s).next())
                 .map(|s| clip(&s.text().collect::<String>(), 300))
                 .unwrap_or_default();
-            out.push(SearchResult::new(title, url, snippet, "startpage", out.len()));
+            out.push(SearchResult::new(
+                title,
+                url,
+                snippet,
+                "startpage",
+                out.len(),
+            ));
         }
         out
     }
@@ -97,7 +103,11 @@ impl Engine for Startpage {
         );
         let html = ctx
             .http
-            .get_with_headers("startpage", &url, &[("Referer", "https://www.startpage.com/")])
+            .get_with_headers(
+                "startpage",
+                &url,
+                &[("Referer", "https://www.startpage.com/")],
+            )
             .await
             .map_err(|e| EngineError::Http(e.to_string()))?
             .text()
@@ -106,7 +116,9 @@ impl Engine for Startpage {
 
         let out = self.parse_html(&html, max);
         if out.is_empty() {
-            Err(EngineError::Blocked("无结果或触发反爬（Startpage 有验证码防护）".into()))
+            Err(EngineError::Blocked(
+                "无结果或触发反爬（Startpage 有验证码防护）".into(),
+            ))
         } else {
             Ok(out)
         }

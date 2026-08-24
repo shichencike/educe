@@ -123,7 +123,13 @@ mod tests {
     use super::*;
 
     fn res(url: &str) -> Vec<SearchResult> {
-        vec![SearchResult::new("t".into(), url.into(), "".into(), "bing", 0)]
+        vec![SearchResult::new(
+            "t".into(),
+            url.into(),
+            "".into(),
+            "bing",
+            0,
+        )]
     }
 
     fn window(urls: &[&str]) -> Vec<SearchResult> {
@@ -153,7 +159,12 @@ mod tests {
     fn window_keeps_three_page_slice() {
         let c = SearchCache::new(Duration::from_secs(60), 10);
         // 窗口 = 完整列表 [50, 50+3) 三页（每页 1 条）
-        c.set("k".into(), 50, 100, window(&["https://a.com", "https://b.com", "https://c.com"]));
+        c.set(
+            "k".into(),
+            50,
+            100,
+            window(&["https://a.com", "https://b.com", "https://c.com"]),
+        );
         let (base, total, got) = c.get("k").expect("应命中");
         assert_eq!((base, total), (50, 100));
         assert_eq!(
