@@ -50,7 +50,7 @@ impl Startpage {
         .collect::<Vec<_>>();
 
         let mut out = Vec::new();
-        for el in doc.select(&result_sels.iter().next().unwrap_or_else(|| unreachable!())) {
+        for el in doc.select(result_sels.iter().next().unwrap_or_else(|| unreachable!())) {
             if out.len() >= max {
                 break;
             }

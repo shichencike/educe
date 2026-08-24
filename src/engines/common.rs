@@ -97,7 +97,7 @@ fn decode_base64_url(s: &str) -> Option<String> {
     use base64::Engine as _;
     // 补 padding 后按 URL_SAFE 解码；失败再按标准 base64 试一次
     let mut b64 = cleaned.replace('-', "+").replace('_', "/");
-    while b64.len() % 4 != 0 {
+    while !b64.len().is_multiple_of(4) {
         b64.push('=');
     }
     let bytes = base64::engine::general_purpose::STANDARD

@@ -77,8 +77,8 @@ pub fn clean_title(title: &str) -> String {
         return t.to_string();
     }
     for suffix in TITLE_SUFFIXES {
-        if t.ends_with(suffix) {
-            return t[..t.len() - suffix.len()].trim_end().to_string();
+        if let Some(stripped) = t.strip_suffix(suffix) {
+            return stripped.trim_end().to_string();
         }
     }
     // 通用短尾缀：` | xxx` / ` - xxx` / `– xxx`，站点名短且无空格

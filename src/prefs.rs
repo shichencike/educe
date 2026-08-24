@@ -72,7 +72,7 @@ impl UserPrefs {
         }
         UserPrefs {
             // 默认每页 50；配置上限更小时随配置收缩，最小 10
-            results_per_page: cfg.search.max_results.min(50).max(10),
+            results_per_page: cfg.search.max_results.clamp(10, 50),
             engines,
             ..UserPrefs::default()
         }
@@ -200,7 +200,7 @@ mod tests {
         assert_eq!(back.results_per_page, 30);
         assert!(!back.open_in_new_tab);
         assert_eq!(back.timeout_ms, 5000);
-        assert_eq!(back.engines["bing"].enabled, false);
+        assert!(!back.engines["bing"].enabled);
         assert_eq!(back.engines["bing"].weight, Some(1.5));
     }
 
