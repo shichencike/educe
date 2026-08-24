@@ -198,6 +198,7 @@ impl AppConfig {
 const ENV_PREFIX: &str = "EDUCE_";
 
 /// 递归遍历配置表，将 `EDUCE_A__B__C=value` 写入对应路径。
+/// 路径段转小写以匹配结构体字段名（如 `EDUCE_SERVER__PORT` -> server.port）。
 fn apply_env_overrides(table: &mut toml::Table) {
     for (key, value) in std::env::vars() {
         let Some(rest) = key.strip_prefix(ENV_PREFIX) else {
@@ -206,8 +207,12 @@ fn apply_env_overrides(table: &mut toml::Table) {
         if rest.is_empty() {
             continue;
         }
-        let parts: Vec<&str> = rest.split("__").collect();
-        set_path(table, &parts, coerce_env_value(&value));
+        let parts: Vec<String> = rest.split("__").map(|p| p.to_ascii_lowercase()).collect();
+        set_path(
+            table,
+            &parts.iter().map(String::as_str).collect::<Vec<_>>(),
+            coerce_env_value(&value),
+        );
     }
 }
 
