@@ -53,13 +53,20 @@ jobs:
         run: cargo install cargo-zigbuild --locked --version 0.23.0
       - name: 构建
         run: ${{ matrix.build-cmd }} --target ${{ matrix.target }}
+      - name: 重命名产物（平台唯一文件名，避免 Release 上传同名覆盖）
+        shell: bash
+        run: |
+          if [ -f "target/${{ matrix.target }}/release/educe" ]; then
+            cp "target/${{ matrix.target }}/release/educe" "target/${{ matrix.target }}/release/educe-${{ matrix.name }}"
+          fi
+          if [ -f "target/${{ matrix.target }}/release/educe.exe" ]; then
+            cp "target/${{ matrix.target }}/release/educe.exe" "target/${{ matrix.target }}/release/educe-${{ matrix.name }}.exe"
+          fi
       - name: 上传产物
         uses: actions/upload-artifact@v4
         with:
           name: educe-${{ matrix.name }}
-          path: |
-            target/${{ matrix.target }}/release/educe
-            target/${{ matrix.target }}/release/educe.exe
+          path: target/${{ matrix.target }}/release/educe-${{ matrix.name }}*
 
   release:
     needs: build
