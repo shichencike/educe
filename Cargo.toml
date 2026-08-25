@@ -14,8 +14,15 @@ path = "src/main.rs"
 #  - tls-rustls（默认）：rustls + ring，用于 Linux / Termux 静态编译（CI 中有 C 编译器）
 #  - tls-native       ：Windows 用系统 schannel（纯 Rust 绑定，零 C 依赖，无需安装任何编译器）
 # 本机 Windows 验证：cargo check --no-default-features --features tls-native
+# tls-rustls 使用 reqwest 的 no-provider 形态：根证书信任链完全由 src/tls.rs 控制
+# （内置 Mozilla 根 webpki-roots + 系统根回退 + 私有 CA 环境变量注入）。
 default = ["tls-rustls"]
-tls-rustls = ["reqwest/rustls-tls"]
+tls-rustls = [
+    "reqwest/rustls-tls-no-provider",
+    "dep:rustls",
+    "dep:webpki-roots",
+    "dep:rustls-native-certs",
+]
 tls-native = ["reqwest/native-tls"]
 
 [dependencies]
@@ -45,6 +52,16 @@ scraper = "0.21"
 async-trait = "0.1"
 thiserror = "2"
 base64 = "0.22"
+
+# ---- TLS 信任链（tls-rustls 后端）----
+# rustls：ring 提供者（与 reqwest 原 rustls-tls 行为一致，静态编译友好）
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"], optional = true }
+# 内置 Mozilla 根证书（编译期快照）
+webpki-roots = { version = "1.0", optional = true }
+# 系统根证书：Windows ROOT 证书库 / macOS keychain / Linux & Termux CA bundle
+rustls-native-certs = { version = "0.8", optional = true }
+# PEM 解析（两个 TLS 后端共用：私有 CA 文件解析）
+rustls-pemfile = "2"
 
 [profile.release]
 opt-level = "s"

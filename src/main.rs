@@ -10,6 +10,7 @@ mod prefs;
 mod runtime;
 mod search;
 mod server;
+mod tls;
 
 use std::sync::Arc;
 

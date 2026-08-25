@@ -108,6 +108,28 @@ enabled = ["baidu", "bing", "..."]
 
 **环境变量覆盖**：任何配置项都可用 `EDUCE_` + 双下划线层级覆盖，如 `EDUCE_SERVER__PORT=9000`、`EDUCE_PROXY__ENABLED=true`。
 
+## TLS 信任链（内置 Mozilla 根 / 系统根回退 / 私有 CA）
+
+出站 HTTPS 请求的证书信任由 `src/tls.rs` 统一管理（`tls-rustls` 后端）：
+
+- **内置 Mozilla 根证书**：默认信任 `webpki-roots` 编译期快照，无需任何外部 CA 文件即可访问主流站点
+- **证书校验失败自动回退**：内置根证书过期/缺失导致校验失败时，自动改用**系统根证书**重连一次——
+  Windows ROOT 证书库（schannel）、macOS keychain、Linux / Termux 系统 CA bundle
+  （含 Termux `$PREFIX/etc/tls/cert.pem` 兜底）
+- **私有 CA（`EDUCE_CA_PEM` 环境变量）**：指向一个 PEM 文件，可同时包含**根证书与中间证书**；
+  中间证书会被注入信任锚集合参与链构建，服务器即使不随链下发中间证书也能完成验证
+
+```bash
+# 信任私有 CA（根证书 + 中间证书可放在同一个 PEM 文件）
+export EDUCE_CA_PEM=/path/to/private-ca.pem
+educe serve --config config.toml
+```
+
+> 说明：
+> - `tls-native` 后端（Windows schannel 默认）本就只信任系统根证书，无需回退；`EDUCE_CA_PEM`
+>   同样生效（追加到系统根证书集）。
+> - `EDUCE_CA_PEM` 文件解析失败或没有可用作信任锚的证书时，服务启动会报错退出（不静默降级）。
+
 ## JS 渲染桥（可选）
 
 对需要执行 JS 的源（知乎/CSDN/简书/微信/Google），Rust 侧会调用外部命令渲染页面再解析：
