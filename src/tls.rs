@@ -25,8 +25,8 @@ pub fn ca_pem_path() -> Option<PathBuf> {
 /// 读取 PEM 文件中的所有证书（DER 字节列表）。
 #[cfg(feature = "tls-rustls")]
 pub fn read_pem_certs(path: &Path) -> Result<Vec<Vec<u8>>> {
-    let data = std::fs::read(path)
-        .with_context(|| format!("读取 PEM 文件失败: {}", path.display()))?;
+    let data =
+        std::fs::read(path).with_context(|| format!("读取 PEM 文件失败: {}", path.display()))?;
     let mut reader = std::io::BufReader::new(data.as_slice());
     let certs = rustls_pemfile::certs(&mut reader)
         .collect::<std::result::Result<Vec<_>, _>>()

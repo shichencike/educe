@@ -66,6 +66,36 @@ educe sources                            # 查看引擎清单
 
 默认 feature（`tls-rustls`）用于 Linux/Termux 静态构建；Windows 用 `--no-default-features --features tls-native`（系统 schannel，不引入任何 C 依赖）。
 
+## Termux（Android）使用体验
+
+支持 **安卓 8.1 及以上**（Chrome 70 级 WebView，前端已兼容）。推荐在 Termux 内一键安装并启动：
+
+```bash
+# 1. 安装 bash（首次）
+pkg install bash
+# 2. 一键：装依赖 + bionic 本机构建 + 生成配置 + 启动
+bash scripts/termux-setup.sh
+```
+
+脚本会自动完成：
+
+- 安装 `rust` / `binutils`，**bionic 本机构建**（无需交叉编译，天然适配安卓 8.1）
+- 首次自动生成 `config.toml` 并把 `host` 设为 `0.0.0.0` —— 手机与电脑同一 Wi-Fi 即可访问
+- 启用 `termux-wake-lock` 防止后台休眠断网（需 `pkg install termux-api`，未装则提示）
+- 打印本机 / 局域网访问地址
+
+常用参数：
+
+```bash
+bash scripts/termux-setup.sh --no-build          # 已构建过，仅启动
+bash scripts/termux-setup.sh --port 9000         # 指定端口
+bash scripts/termux-setup.sh --install-service   # 注册 termux-services 开机自启
+```
+
+开机自启（`--install-service`）注册后：`sv up educe` 启用、`sv down educe` 禁用、`sv status educe` 查看状态。自启服务默认按 `config.toml` 的 `host` 绑定，如需开机后局域网访问请保持 `host = "0.0.0.0"`。
+
+> 若已用 CI 发布的 `linux-aarch64` 静态产物（`educe-linux-aarch64`），也可直接 `chmod +x` 后运行，无需本机构建；但本机 bionic 构建对安卓 8.1 兼容性最稳。
+
 ## 配置说明（config.example.toml）
 
 ```toml

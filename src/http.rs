@@ -14,10 +14,10 @@ use rand::Rng;
 use reqwest::header::{ACCEPT, ACCEPT_LANGUAGE, USER_AGENT};
 
 use crate::config::ProxyConfig;
-#[cfg(feature = "tls-rustls")]
-use crate::tls::rustls_backend::{self, TrustSource};
 #[cfg(feature = "tls-native")]
 use crate::tls::native_backend;
+#[cfg(feature = "tls-rustls")]
+use crate::tls::rustls_backend::{self, TrustSource};
 
 /// 浏览器 UA 池（请求时随机挑一个，降低被识别为爬虫的概率）。
 const UA_POOL: &[&str] = &[
@@ -188,7 +188,11 @@ impl HttpClient {
         UA_POOL[rand::thread_rng().gen_range(0..UA_POOL.len())]
     }
 
-    fn base_request_with(&self, client: &reqwest::Client, url: &str) -> Result<reqwest::RequestBuilder> {
+    fn base_request_with(
+        &self,
+        client: &reqwest::Client,
+        url: &str,
+    ) -> Result<reqwest::RequestBuilder> {
         let ua = self.pick_ua();
         let lang = LANG_POOL[rand::thread_rng().gen_range(0..LANG_POOL.len())];
         Ok(client
@@ -234,8 +238,7 @@ impl HttpClient {
                     if is_cert_error(&err) {
                         tracing::warn!(engine, url, "证书校验失败，回退系统根证书重连");
                         let client = self.pick_from(pool);
-                        if let Ok(resp) = self.send_once(engine, url, headers, Some(client)).await
-                        {
+                        if let Ok(resp) = self.send_once(engine, url, headers, Some(client)).await {
                             return Ok(resp);
                         }
                     }
@@ -287,7 +290,7 @@ fn tls_client_builder() -> Result<reqwest::ClientBuilder> {
         let config = rustls::ClientConfig::builder()
             .with_root_certificates(store)
             .with_no_client_auth();
-        return Ok(reqwest::Client::builder().use_preconfigured_tls(config));
+        Ok(reqwest::Client::builder().use_preconfigured_tls(config))
     }
     #[cfg(feature = "tls-native")]
     {
@@ -315,11 +318,15 @@ fn build_pool(
     cfg: &ProxyConfig,
     tls: impl Fn() -> Result<reqwest::ClientBuilder>,
 ) -> Result<Vec<reqwest::Client>> {
-    // 公共连接调优：空闲连接复用、keepalive、TCP 保活、超时分级（连接 10s / 整体 20s）
+    // 公共连接调优：空闲连接复用、keepalive、TCP 保活、超时分级（连接 4s / 整体 20s）。
+    // connect_timeout 取 4s 而非 10s：安卓 8.1 / 部分移动网络下，含 AAAA 记录的域名
+    // 会优先解析出 IPv6，但 IPv6 链路不通时 TCP 连接会一直挂起。若连接超时与单源超时
+    // （默认 10s）同长，IPv6 挂起会耗尽单源预算，IPv4 回退根本没机会执行，表现为
+    // "部分源超时、电脑正常"。4s 连接超时让 IPv6 快速失败并回退 IPv4，请求在预算内完成。
     let tuned = |tls: reqwest::ClientBuilder| {
         tls.user_agent("Mozilla/5.0")
             .timeout(Duration::from_secs(20))
-            .connect_timeout(Duration::from_secs(10))
+            .connect_timeout(Duration::from_secs(4))
             .redirect(reqwest::redirect::Policy::limited(8))
             // 维持会话 cookie（百度/搜狗/360 等需要）
             .cookie_store(true)
@@ -364,7 +371,7 @@ fn build_fallback_pool(_cfg: &ProxyConfig) -> Result<Option<Arc<Vec<reqwest::Cli
 fn is_cert_error(err: &anyhow::Error) -> bool {
     #[cfg(feature = "tls-rustls")]
     {
-        return rustls_backend::is_certificate_error(err);
+        rustls_backend::is_certificate_error(err)
     }
     #[cfg(feature = "tls-native")]
     {
