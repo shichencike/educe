@@ -4,6 +4,23 @@
 
 ## [Unreleased]
 
+## [2.2.1] - 2026-08-26
+
+### 变更
+
+- **Termux 使用体验优化**（`scripts/termux-setup.sh` / `scripts/build-termux.sh` / `Cargo.toml`）：
+  - 新增轻量 `release-termux` 构建 profile（关闭 LTO、`codegen-units=16`），显著降低手机端构建内存占用与耗时，避免低内存设备 OOM
+  - 脚本首次使用自动 `pkg update` 同步软件源，全新 Termux 也能直接安装依赖
+  - 补装 `clang`（编译 ring 的 C 部分，`tls-rustls` 后端必需）
+  - 按 `/proc/meminfo` 自动限制并行编译任务数（<4GB→2、4~8GB→4、≥8GB→8）
+  - 自动安装 `termux-api` 并启用 `termux-wake-lock`，防止后台休眠断网
+
+### 文档
+
+- README 更新 Termux 构建表与使用说明。
+
+## [2.2.0] - 2026-08-26
+
 ### 新增
 
 - **TLS 信任链加固**（`src/tls.rs`，rustls 后端）：
