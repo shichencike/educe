@@ -61,7 +61,7 @@ educe sources                            # 查看引擎清单
 | --- | --- | --- |
 | Windows | `powershell -File scripts/build-windows.ps1` | schannel TLS，零 C 依赖，产出单个 exe |
 | Linux (x86_64/ARM64) | `bash scripts/build-musl.sh` | musl 全静态，需 cargo-zigbuild + zig |
-| Termux (Android) | `pkg install rust && bash scripts/build-termux.sh` | 本机构建（bionic） |
+| Termux (Android) | `pkg install rust binutils clang && bash scripts/build-termux.sh` | 本机构建（bionic，轻量 release-termux profile） |
 | 全平台 | 打 `v*` tag 推 GitHub，走 `.github/workflows/release.yml` | 自动产出三平台二进制 |
 
 默认 feature（`tls-rustls`）用于 Linux/Termux 静态构建；Windows 用 `--no-default-features --features tls-native`（系统 schannel，不引入任何 C 依赖）。
@@ -79,9 +79,11 @@ bash scripts/termux-setup.sh
 
 脚本会自动完成：
 
-- 安装 `rust` / `binutils`，**bionic 本机构建**（无需交叉编译，天然适配安卓 8.1）
+- 自动安装 `rust` / `binutils` / `clang`，**bionic 本机构建**（无需交叉编译，天然适配安卓 8.1）
+- 首次使用自动 `pkg update` 同步软件源（全新 Termux 也能直接装包）
+- 用轻量 `release-termux` profile 构建，并按内存自动限制并行度，避免低内存手机 OOM
 - 首次自动生成 `config.toml` 并把 `host` 设为 `0.0.0.0` —— 手机与电脑同一 Wi-Fi 即可访问
-- 启用 `termux-wake-lock` 防止后台休眠断网（需 `pkg install termux-api`，未装则提示）
+- 自动安装 `termux-api` 并启用 `termux-wake-lock` 防止后台休眠断网（仍需在系统安装 Termux:API 应用）
 - 打印本机 / 局域网访问地址
 
 常用参数：

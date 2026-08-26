@@ -72,3 +72,18 @@ panic = "abort"
 
 [profile.release.package."*"]
 opt-level = 3
+
+# ---- Termux（Android）本机构建 profile ----
+# 手机内存/算力有限：关闭 LTO、提高并行编译单元，显著降低内存占用与构建时间，
+# 避免低内存设备 OOM 或构建过慢。用 `cargo build --profile release-termux` 构建
+# （scripts/build-termux.sh 与 scripts/termux-setup.sh 已默认使用）。
+[profile.release-termux]
+inherits = "release"
+opt-level = 2
+lto = false
+codegen-units = 16
+strip = true
+panic = "abort"
+
+[profile.release-termux.package."*"]
+opt-level = 2

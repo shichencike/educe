@@ -3,9 +3,11 @@
 # Educe · Termux（Android）一键安装 + 启动脚本
 #
 # 特性：
-#   - 自动安装依赖（rust / binutils），无需交叉编译，bionic 本机构建
+#   - 自动安装依赖（rust / binutils / clang），无需交叉编译，bionic 本机构建
+#   - 首次使用自动 pkg update 同步软件源（全新 Termux 也能直接装包）
+#   - 用轻量 release-termux profile 构建，并按内存自动限制并行度，避免 OOM
 #   - 自动生成 config.toml：host=0.0.0.0，手机与电脑同一 Wi-Fi 即可互访
-#   - termux-wake-lock 防止后台休眠断网（termux-api 未装时给出提示）
+#   - 自动安装 termux-api 并启用 termux-wake-lock 防止后台休眠断网
 #   - 可选注册 termux-services 自启动（--install-service）
 #   - 打印本机 / 局域网访问地址
 #
@@ -46,18 +48,39 @@ echo "    安卓: $(getprop ro.build.version.release 2>/dev/null || echo 未知)
 
 # ---- 安装依赖 ----
 echo ""
-echo "==> 检查依赖（rust / binutils）..."
-pkg install -y rust binutils
+echo "==> 检查依赖（rust / binutils / clang）..."
+# 全新 Termux 本地没有软件源列表，pkg install 会直接失败，先同步一次
+if ! pkg show rust >/dev/null 2>&1; then
+  echo "    首次使用，先 pkg update 同步软件源..."
+  pkg update
+fi
+# clang 用于编译 ring 的 C 部分（tls-rustls 后端必需）
+pkg install -y rust binutils clang
 
 # ---- 构建（bionic 本机）----
 if [ "$DO_BUILD" -eq 1 ]; then
   echo ""
-  echo "==> 开始本机构建（bionic，首次约 5~15 分钟，后续增量很快）..."
-  cargo build --release
-  echo "    构建完成: $(pwd)/target/release/educe"
+  echo "==> 开始本机构建（bionic，首次约 3~10 分钟，后续增量很快）..."
+  # 手机内存有限：按 /proc/meminfo 自动限制并行编译，避免 OOM
+  MEM_KB=$(grep '^MemTotal:' /proc/meminfo 2>/dev/null | tr -dc '0-9')
+  MEM_KB=${MEM_KB:-0}
+  JOBS=""
+  if [ "$MEM_KB" -gt 0 ]; then
+    if   [ "$MEM_KB" -lt 4194304 ]; then JOBS=2   # < 4GB
+    elif [ "$MEM_KB" -lt 8388608 ]; then JOBS=4   # 4~8GB
+    else JOBS=8                                    # >= 8GB
+    fi
+  fi
+  if [ -n "$JOBS" ]; then
+    echo "    检测到内存 $((MEM_KB / 1024))MB，限制并行编译为 $JOBS 任务（防 OOM）"
+    cargo build --profile release-termux --jobs "$JOBS"
+  else
+    cargo build --profile release-termux
+  fi
+  echo "    构建完成: $(pwd)/target/release-termux/educe"
 fi
 
-BIN="$(pwd)/target/release/educe"
+BIN="$(pwd)/target/release-termux/educe"
 if [ ! -x "$BIN" ]; then
   echo "错误: 未找到可执行文件 $BIN，请先去掉 --no-build 完整构建一次。" >&2
   exit 1
@@ -94,7 +117,7 @@ if [ "$INSTALL_SERVICE" -eq 1 ]; then
 #!/data/data/com.termux/files/usr/bin/bash
 exec 2>&1
 cd "$PROJ_DIR"
-exec ./target/release/educe serve --config config.toml
+exec ./target/release-termux/educe serve --config config.toml
 EOF
   chmod +x "$PREFIX/var/service/educe/run"
   echo "    已注册。启用: sv up educe；禁用: sv down educe；状态: sv status educe"
@@ -119,8 +142,15 @@ if command -v termux-wake-lock >/dev/null 2>&1; then
   termux-wake-lock
   echo "==> 已启用 termux-wake-lock（后台不休眠）"
 else
-  echo "==> 提示: 未安装 termux-api，无法使用 wake-lock 防止后台休眠。"
-  echo "    可执行: pkg install termux-api 后重跑本脚本。"
+  echo "==> 未检测到 termux-wake-lock，尝试安装 termux-api..."
+  pkg install -y termux-api 2>/dev/null || true
+  if command -v termux-wake-lock >/dev/null 2>&1; then
+    termux-wake-lock
+    echo "==> 已安装 termux-api 并启用 termux-wake-lock（后台不休眠）"
+  else
+    echo "==> 提示: 还需在系统安装 Termux:API 应用（Google Play / F-Droid 搜索 Termux:API），"
+    echo "    安装后重跑本脚本即可启用 wake-lock 防止后台休眠。"
+  fi
 fi
 
 # ---- 启动 ----
