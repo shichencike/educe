@@ -1,6 +1,6 @@
 [package]
 name = "educe"
-version = "2.2.1"
+version = "2.2.2"
 edition = "2021"
 description = "Educe 元搜索引擎：聚合多源搜索结果的 Rust 静态编译服务（Web + REST API）"
 license = "MIT"

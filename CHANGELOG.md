@@ -4,6 +4,19 @@
 
 ## [Unreleased]
 
+## [2.2.2] - 2026-08-27
+
+### 修复
+
+- **安卓 8.1 Termux 全源统一超时**（约 8.3s 均匀失败，`src/dns.rs` / `src/http.rs` / 各引擎）：
+  - 新增自定义 DNS 解析器注入 reqwest：解析带硬超时（`EDUCE_DNS_TIMEOUT_MS`，默认 3000ms，挂起立即明示 `DNS 解析超时`）、IPv4 地址优先、`EDUCE_NO_IPV6=1` 可直接丢弃 IPv6
+  - 主客户端与系统根证书回退客户端均接入该解析器
+  - 引擎错误串联完整原因链（`error_detail`，anyhow chain / std source 逐层下钻），DNS / 连接 / TLS 哪层失败可直接在 UI 与 CLI 看到
+
+### 文档
+
+- README 新增 Termux 故障排查章节（curl / getent / ip route 三步定位 + 环境变量说明）。
+
 ## [2.2.1] - 2026-08-26
 
 ### 变更
