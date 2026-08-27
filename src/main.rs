@@ -1,8 +1,8 @@
 mod cache;
 mod cli;
 mod config;
-mod dns;
 mod custom;
+mod dns;
 mod engines;
 mod http;
 mod jsrender;

@@ -65,11 +65,12 @@ impl Resolve for PreferV4Resolver {
         let timeout = self.resolve_timeout;
         let drop_ipv6 = self.drop_ipv6;
         Box::pin(async move {
-            let lookups = tokio::time::timeout(timeout, tokio::net::lookup_host((host.as_str(), 0)))
-                .await
-                .map_err(|_| format!("DNS 解析超时({host}) 超过 {timeout:?}"))?
-                .map_err(|e| format!("DNS 解析失败({host}): {e}"))?
-                .collect::<Vec<_>>();
+            let lookups =
+                tokio::time::timeout(timeout, tokio::net::lookup_host((host.as_str(), 0)))
+                    .await
+                    .map_err(|_| format!("DNS 解析超时({host}) 超过 {timeout:?}"))?
+                    .map_err(|e| format!("DNS 解析失败({host}): {e}"))?
+                    .collect::<Vec<_>>();
 
             let mut v4 = Vec::new();
             let mut v6 = Vec::new();

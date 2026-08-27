@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use scraper::{Html, Selector};
 
 use crate::engines::common::{clean_text, clip, encode_query_pct, strip_html};
-use crate::engines::{Engine, EngineContext, EngineError, error_detail};
+use crate::engines::{error_detail, Engine, EngineContext, EngineError};
 use std::borrow::Cow;
 
 use crate::models::{Category, EngineMeta, SearchResult};
@@ -42,11 +42,13 @@ impl Engine for GoogleNews {
 
         let doc = Html::parse_document(&xml);
         let item_sel = Selector::parse("item").map_err(|e| EngineError::Http(error_detail(&e)))?;
-        let title_sel = Selector::parse("title").map_err(|e| EngineError::Http(error_detail(&e)))?;
+        let title_sel =
+            Selector::parse("title").map_err(|e| EngineError::Http(error_detail(&e)))?;
         let link_sel = Selector::parse("link").map_err(|e| EngineError::Http(error_detail(&e)))?;
         let desc_sel =
             Selector::parse("description").map_err(|e| EngineError::Http(error_detail(&e)))?;
-        let date_sel = Selector::parse("pubDate").map_err(|e| EngineError::Http(error_detail(&e)))?;
+        let date_sel =
+            Selector::parse("pubDate").map_err(|e| EngineError::Http(error_detail(&e)))?;
 
         let mut out = Vec::new();
         for el in doc.select(&item_sel) {
