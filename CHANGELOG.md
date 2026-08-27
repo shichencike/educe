@@ -4,6 +4,19 @@
 
 ## [Unreleased]
 
+## [2.2.3] - 2026-08-27
+
+### 修复
+
+- **系统 DNS 解析挂起时自动回退公共 DNS 直连查询**（`src/dns.rs`，新增 `hickory-resolver` 依赖）：
+  - 系统 getaddrinfo 失败/超时（UI 显示 `DNS 解析超时`）后，自动改用阿里 `223.5.5.5` / DNSPod `119.29.29.29` / 114DNS / 谷歌 `8.8.8.8` 直连查询，绕开损坏的系统解析器（Termux resolv.conf 指向不可达 DNS 时仍可解析）
+  - 解析预算 60% 给系统解析、其余留给公共 DNS 回退，整体仍受 `EDUCE_DNS_TIMEOUT_MS`（默认 3000ms）硬超时约束
+  - 公共 DNS 回退路径同样保持 IPv4 优先与 `EDUCE_NO_IPV6=1` 过滤
+
+### 文档
+
+- README Termux 故障排查章节补充 `DNS 解析超时` 症状解读与公共 DNS 回退说明。
+
 ## [2.2.2] - 2026-08-27
 
 ### 修复
