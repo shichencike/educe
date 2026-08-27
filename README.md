@@ -100,10 +100,11 @@ bash scripts/termux-setup.sh --install-service   # 注册 termux-services 开机
 
 ### Termux 故障排查：全部搜索源统一超时
 
-症状：所有源约 **8 秒**后失败（`4s 连接超时 × 2 次尝试 + 0.3s 退避`），电脑上正常。这通常不是引擎问题，而是手机网络层：系统 DNS 解析挂起，或 DNS 把 IPv6 排前而移动网络的 IPv6 链路不通。Educe 已内置对策（启动日志可见 `DNS 解析器就绪：IPv4 优先 + 解析硬超时`）：
+症状：所有源约 **8 秒**后失败（`4s 连接超时 × 2 次尝试 + 0.3s 退避`），电脑上正常。这通常不是引擎问题，而是手机网络层：**系统 DNS 解析挂起**（最常见，UI 会显示 `DNS 解析超时`），或 DNS 把 IPv6 排前而移动网络的 IPv6 链路不通。Educe 已内置对策（启动日志可见 `DNS 解析器就绪：IPv4 优先 + 解析硬超时 + 公共 DNS 回退`）：
 
+- **解析硬超时**：系统 getaddrinfo 挂起超过 `EDUCE_DNS_TIMEOUT_MS`（默认 3000ms）立即放弃，不再干耗预算，错误明确显示 `DNS 解析超时(域名)`
+- **公共 DNS 回退**：系统解析失败/超时后，自动改用阿里 `223.5.5.5` / DNSPod `119.29.29.29` / 114DNS / 谷歌 `8.8.8.8` 直连查询，绕开损坏的系统解析器（Termux 的 resolv.conf 指向不可达 DNS 时仍能解析）
 - **IPv4 优先**：解析结果把 IPv4 排前，IPv4 可用时立即建连，不被坏掉的 IPv6 拖累
-- **解析硬超时**：系统 getaddrinfo 挂起超过 `EDUCE_DNS_TIMEOUT_MS`（默认 3000ms）立即失败并明示 `DNS 解析超时`
 - **`EDUCE_NO_IPV6=1`**：IPv6 链路完全不可用时直接丢弃 IPv6 地址（终极手段，NAT64 / 纯 IPv6 网络请勿开启）
 
 先分清是哪一层的问题，在 Termux 里依次执行：
@@ -111,13 +112,14 @@ bash scripts/termux-setup.sh --install-service   # 注册 termux-services 开机
 ```bash
 # 1) 网络可达性（curl 有 happy-eyeballs，能自动 IPv4/IPv6 回退）
 curl -v --connect-timeout 5 -m 10 https://www.baidu.com
-#    成功 → 网络通，问题在 Educe 的解析/建连顺序，重启后即生效
+#    成功 → 网络通，问题在解析层，新版已自动公共 DNS 回退，重启后即生效
 #    超时 → 手机出站 TCP 被拦（防火墙 App / 受限网络 / 无外网），先修设备
 
 # 2) DNS 解析（看是否返回 IPv4、顺序如何）
 getent ahosts www.baidu.com
-#    长时间无输出 → 系统 DNS 不可用：可把解析器指到公共 DNS 再重启 Educe
-#    nameserver 223.5.5.5  # 追加到 $PREFIX/etc/resolv.conf（Termux 重启可能被覆盖）
+#    长时间无输出 → 系统 DNS 不可用；可顺手把 resolv.conf 指到公共 DNS
+#    echo -e "nameserver 223.5.5.5\nnameserver 119.29.29.29" > $PREFIX/etc/resolv.conf
+#    （Termux 重启可能被覆盖，仅作临时手段；Educe 内置回退无需此项）
 #    只出 IPv6 且 1) 超时 → 用 EDUCE_NO_IPV6=1 启动
 
 # 3) 路由（确认 IPv6 默认路由是否存在）
