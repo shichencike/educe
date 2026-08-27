@@ -26,7 +26,7 @@ tls-rustls = [
 tls-native = ["reqwest/native-tls"]
 
 [dependencies]
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "signal", "fs", "io-util", "process"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "signal", "fs", "io-util", "process", "net"] }
 axum = "0.8"
 reqwest = { version = "0.12", default-features = false, features = [
     "charset",

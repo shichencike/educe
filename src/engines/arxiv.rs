@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use scraper::{Html, Selector};
 
 use crate::engines::common::{clean_text, clip, encode_query_pct};
-use crate::engines::{Engine, EngineContext, EngineError};
+use crate::engines::{Engine, EngineContext, EngineError, error_detail};
 use std::borrow::Cow;
 
 use crate::models::{Category, EngineMeta, SearchResult};
@@ -39,15 +39,15 @@ impl Engine for Arxiv {
             .http
             .get_text("arxiv", &url)
             .await
-            .map_err(|e| EngineError::Http(e.to_string()))?;
+            .map_err(|e| EngineError::Http(error_detail(&e)))?;
 
         // Atom XML 经 html5ever 解析后按标签名选择（简单可靠）
         let doc = Html::parse_document(&xml);
-        let entry_sel = Selector::parse("entry").map_err(|e| EngineError::Http(e.to_string()))?;
-        let title_sel = Selector::parse("title").map_err(|e| EngineError::Http(e.to_string()))?;
-        let id_sel = Selector::parse("id").map_err(|e| EngineError::Http(e.to_string()))?;
-        let sum_sel = Selector::parse("summary").map_err(|e| EngineError::Http(e.to_string()))?;
-        let pub_sel = Selector::parse("published").map_err(|e| EngineError::Http(e.to_string()))?;
+        let entry_sel = Selector::parse("entry").map_err(|e| EngineError::Http(error_detail(&e)))?;
+        let title_sel = Selector::parse("title").map_err(|e| EngineError::Http(error_detail(&e)))?;
+        let id_sel = Selector::parse("id").map_err(|e| EngineError::Http(error_detail(&e)))?;
+        let sum_sel = Selector::parse("summary").map_err(|e| EngineError::Http(error_detail(&e)))?;
+        let pub_sel = Selector::parse("published").map_err(|e| EngineError::Http(error_detail(&e)))?;
 
         let mut out = Vec::new();
         for el in doc.select(&entry_sel) {

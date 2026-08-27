@@ -4,7 +4,7 @@
 use async_trait::async_trait;
 
 use crate::engines::common::{clip, encode_query_pct, strip_html};
-use crate::engines::{Engine, EngineContext, EngineError};
+use crate::engines::{Engine, EngineContext, EngineError, error_detail};
 use std::borrow::Cow;
 
 use crate::models::{Category, EngineMeta, SearchResult};
@@ -40,7 +40,7 @@ impl Engine for Wikipedia {
             .http
             .get("wikipedia", &url)
             .await
-            .map_err(|e| EngineError::Http(e.to_string()))?;
+            .map_err(|e| EngineError::Http(error_detail(&e)))?;
         let v: serde_json::Value = resp
             .json()
             .await

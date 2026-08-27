@@ -6,7 +6,7 @@ use async_trait::async_trait;
 use scraper::{Html, Selector};
 
 use crate::engines::common::{clean_text, clip, encode_query_pct, generic_extract};
-use crate::engines::{Engine, EngineContext, EngineError};
+use crate::engines::{Engine, EngineContext, EngineError, error_detail};
 use std::borrow::Cow;
 
 use crate::models::{Category, EngineMeta, SearchResult};
@@ -87,7 +87,7 @@ impl Engine for Wechat {
         let html = renderer
             .render(&url)
             .await
-            .map_err(|e| EngineError::Http(e.to_string()))?;
+            .map_err(|e| EngineError::Http(error_detail(&e)))?;
 
         let mut out = self.parse_html(&html, max);
         if out.is_empty() {

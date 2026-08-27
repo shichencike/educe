@@ -5,7 +5,7 @@ use async_trait::async_trait;
 use scraper::{Html, Selector};
 
 use crate::engines::common::{clean_text, clip, encode_query_pct};
-use crate::engines::{Engine, EngineContext, EngineError};
+use crate::engines::{Engine, EngineContext, EngineError, error_detail};
 use std::borrow::Cow;
 
 use crate::models::{Category, EngineMeta, SearchResult};
@@ -39,15 +39,15 @@ impl Engine for DuckDuckGo {
             .http
             .get_text("duckduckgo", &url)
             .await
-            .map_err(|e| EngineError::Http(e.to_string()))?;
+            .map_err(|e| EngineError::Http(error_detail(&e)))?;
 
         let doc = Html::parse_document(&html);
         let result_sel =
-            Selector::parse("div.result").map_err(|e| EngineError::Http(e.to_string()))?;
+            Selector::parse("div.result").map_err(|e| EngineError::Http(error_detail(&e)))?;
         let link_sel =
-            Selector::parse("a.result__a").map_err(|e| EngineError::Http(e.to_string()))?;
+            Selector::parse("a.result__a").map_err(|e| EngineError::Http(error_detail(&e)))?;
         let snip_sel =
-            Selector::parse("a.result__snippet").map_err(|e| EngineError::Http(e.to_string()))?;
+            Selector::parse("a.result__snippet").map_err(|e| EngineError::Http(error_detail(&e)))?;
 
         let mut out = Vec::new();
         for el in doc.select(&result_sel) {

@@ -6,7 +6,7 @@ use async_trait::async_trait;
 use scraper::{Html, Selector};
 
 use crate::engines::common::{clean_text, clip, encode_query_pct};
-use crate::engines::{Engine, EngineContext, EngineError};
+use crate::engines::{Engine, EngineContext, EngineError, error_detail};
 use std::borrow::Cow;
 
 use crate::models::{Category, EngineMeta, SearchResult};
@@ -37,7 +37,7 @@ impl Gitee {
             .http
             .get("gitee", &url)
             .await
-            .map_err(|e| EngineError::Http(e.to_string()))?;
+            .map_err(|e| EngineError::Http(error_detail(&e)))?;
         if !resp.status().is_success() {
             return Err(EngineError::Http(format!(
                 "API HTTP {}",
@@ -106,14 +106,14 @@ impl Gitee {
             .http
             .get_text("gitee", &url)
             .await
-            .map_err(|e| EngineError::Http(e.to_string()))?;
+            .map_err(|e| EngineError::Http(error_detail(&e)))?;
         let doc = Html::parse_document(&html);
         let result_sel = Selector::parse("li.project-item, li[class*='repository']")
-            .map_err(|e| EngineError::Http(e.to_string()))?;
+            .map_err(|e| EngineError::Http(error_detail(&e)))?;
         let link_sel = Selector::parse("a.title, a[class*='title']")
-            .map_err(|e| EngineError::Http(e.to_string()))?;
+            .map_err(|e| EngineError::Http(error_detail(&e)))?;
         let snip_sel = Selector::parse(".desc, .project-desc")
-            .map_err(|e| EngineError::Http(e.to_string()))?;
+            .map_err(|e| EngineError::Http(error_detail(&e)))?;
 
         let mut out = Vec::new();
         for el in doc.select(&result_sel) {

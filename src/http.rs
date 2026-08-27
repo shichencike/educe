@@ -283,14 +283,18 @@ impl HttpClient {
 // ---- TLS 信任链辅助（见 src/tls.rs）----
 
 /// TLS 后端的主客户端 builder（rustls：内置 Mozilla 根 + 私有 CA；native：系统根 + 私有 CA）。
+/// 统一注入 IPv4 优先 + 解析超时的自定义 DNS 解析器（见 src/dns.rs）。
 fn tls_client_builder() -> Result<reqwest::ClientBuilder> {
+    let dns = Arc::new(crate::dns::PreferV4Resolver::from_env());
     #[cfg(feature = "tls-rustls")]
     {
         let store = rustls_backend::build_root_store(TrustSource::Builtin)?;
         let config = rustls::ClientConfig::builder()
             .with_root_certificates(store)
             .with_no_client_auth();
-        Ok(reqwest::Client::builder().use_preconfigured_tls(config))
+        Ok(reqwest::Client::builder()
+            .use_preconfigured_tls(config)
+            .dns_resolver(dns))
     }
     #[cfg(feature = "tls-native")]
     {
@@ -298,7 +302,7 @@ fn tls_client_builder() -> Result<reqwest::ClientBuilder> {
         for cert in native_backend::ca_certificates()? {
             builder = builder.add_root_certificate(cert);
         }
-        Ok(builder)
+        Ok(builder.dns_resolver(dns))
     }
 }
 
@@ -309,7 +313,9 @@ fn fallback_tls_client_builder() -> Result<reqwest::ClientBuilder> {
     let config = rustls::ClientConfig::builder()
         .with_root_certificates(store)
         .with_no_client_auth();
-    Ok(reqwest::Client::builder().use_preconfigured_tls(config))
+    Ok(reqwest::Client::builder()
+        .use_preconfigured_tls(config)
+        .dns_resolver(Arc::new(crate::dns::PreferV4Resolver::from_env())))
 }
 
 /// 按代理配置构建整个客户端池（直连 + 每代理一个客户端），应用公共连接调优。

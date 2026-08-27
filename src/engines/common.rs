@@ -7,6 +7,62 @@ use url::Url;
 
 use crate::models::SearchResult;
 
+/// 错误链渲染：外层上下文 + 完整原因链，用 ` ← ` 连成单行。
+/// 网络类错误（如"请求失败(baidu): url"）只显示最外层时根因被吞掉，
+/// 串上整条链便于前端展示与定位（DNS 超时 / 连接超时 / TLS 握手失败等）。
+///
+/// anyhow::Error 不实现 `std::error::Error`（自带私有 StdError），无法直接
+/// trait-object 化，故用具体类型宏实现统一抽象，避免 blanket impl 与上游
+/// trait 的未来兼容冲突。
+pub fn error_detail(err: &impl ErrorChain) -> String {
+    err.render_chain()
+}
+
+/// 错误链遍历的统一抽象。
+pub trait ErrorChain {
+    fn render_chain(&self) -> String;
+}
+
+/// 通用 std 错误链遍历（`source()` 逐层下钻）。
+fn render_std_chain(err: &dyn std::error::Error) -> String {
+    let mut parts = Vec::new();
+    let mut cur: Option<&dyn std::error::Error> = Some(err);
+    while let Some(e) = cur {
+        parts.push(e.to_string());
+        cur = e.source();
+    }
+    parts.join(" ← ")
+}
+
+impl ErrorChain for anyhow::Error {
+    fn render_chain(&self) -> String {
+        self.chain()
+            .map(|c| c.to_string())
+            .collect::<Vec<_>>()
+            .join(" ← ")
+    }
+}
+
+macro_rules! impl_error_chain_std {
+    ($($t:ty),* $(,)?) => {
+        $(
+            impl ErrorChain for $t {
+                fn render_chain(&self) -> String {
+                    render_std_chain(self)
+                }
+            }
+        )*
+    };
+}
+
+impl_error_chain_std!(reqwest::Error, std::io::Error);
+
+impl<'a> ErrorChain for scraper::error::SelectorErrorKind<'a> {
+    fn render_chain(&self) -> String {
+        render_std_chain(self)
+    }
+}
+
 /// 查询串编码：空格转 %20（适用于大多数引擎）。
 pub fn encode_query_pct(q: &str) -> String {
     use percent_encoding::{utf8_percent_encode, NON_ALPHANUMERIC};

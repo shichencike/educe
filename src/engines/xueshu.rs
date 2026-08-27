@@ -6,7 +6,7 @@ use async_trait::async_trait;
 use scraper::{Html, Selector};
 
 use crate::engines::common::{absolute_url, clean_text, clip, encode_query_pct};
-use crate::engines::{Engine, EngineContext, EngineError};
+use crate::engines::{Engine, EngineContext, EngineError, error_detail};
 use std::borrow::Cow;
 
 use crate::models::{Category, EngineMeta, SearchResult};
@@ -114,10 +114,10 @@ impl Engine for Xueshu {
             .http
             .get_with_headers("xueshu", &url, &[("Referer", "https://xueshu.baidu.com/")])
             .await
-            .map_err(|e| EngineError::Http(e.to_string()))?
+            .map_err(|e| EngineError::Http(error_detail(&e)))?
             .text()
             .await
-            .map_err(|e| EngineError::Http(e.to_string()))?;
+            .map_err(|e| EngineError::Http(error_detail(&e)))?;
 
         let out = self.parse_html(&html, max);
         if out.is_empty() {

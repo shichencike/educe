@@ -5,7 +5,7 @@ use async_trait::async_trait;
 use scraper::{Html, Selector};
 
 use crate::engines::common::{absolute_url, clean_text, clip, encode_query_pct};
-use crate::engines::{Engine, EngineContext, EngineError};
+use crate::engines::{Engine, EngineContext, EngineError, error_detail};
 use std::borrow::Cow;
 
 use crate::models::{Category, EngineMeta, SearchResult};
@@ -36,14 +36,14 @@ impl Engine for So360 {
             .http
             .get_text("so360", &url)
             .await
-            .map_err(|e| EngineError::Http(e.to_string()))?;
+            .map_err(|e| EngineError::Http(error_detail(&e)))?;
 
         let doc = Html::parse_document(&html);
         let result_sel =
-            Selector::parse("li.res-list").map_err(|e| EngineError::Http(e.to_string()))?;
-        let link_sel = Selector::parse("h3 a").map_err(|e| EngineError::Http(e.to_string()))?;
+            Selector::parse("li.res-list").map_err(|e| EngineError::Http(error_detail(&e)))?;
+        let link_sel = Selector::parse("h3 a").map_err(|e| EngineError::Http(error_detail(&e)))?;
         let snip_sel =
-            Selector::parse(".res-desc").map_err(|e| EngineError::Http(e.to_string()))?;
+            Selector::parse(".res-desc").map_err(|e| EngineError::Http(error_detail(&e)))?;
 
         let mut out = Vec::new();
         for el in doc.select(&result_sel) {

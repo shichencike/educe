@@ -6,7 +6,7 @@ use async_trait::async_trait;
 use scraper::{Html, Selector};
 
 use crate::engines::common::{absolute_url, clean_text, clip, encode_query_pct};
-use crate::engines::{Engine, EngineContext, EngineError};
+use crate::engines::{Engine, EngineContext, EngineError, error_detail};
 use std::borrow::Cow;
 
 use crate::models::{Category, EngineMeta, SearchResult};
@@ -40,16 +40,16 @@ impl Engine for Sogou {
             .http
             .get_text("sogou", &url)
             .await
-            .map_err(|e| EngineError::Http(e.to_string()))?;
+            .map_err(|e| EngineError::Http(error_detail(&e)))?;
 
         let doc = Html::parse_document(&html);
         let result_sel =
-            Selector::parse("div.vrwrap").map_err(|e| EngineError::Http(e.to_string()))?;
-        let link_sel = Selector::parse("h3 a").map_err(|e| EngineError::Http(e.to_string()))?;
+            Selector::parse("div.vrwrap").map_err(|e| EngineError::Http(error_detail(&e)))?;
+        let link_sel = Selector::parse("h3 a").map_err(|e| EngineError::Http(error_detail(&e)))?;
         let snip_sels = [
-            Selector::parse(".text-layout").map_err(|e| EngineError::Http(e.to_string()))?,
-            Selector::parse(".str_info").map_err(|e| EngineError::Http(e.to_string()))?,
-            Selector::parse(".star-wiki").map_err(|e| EngineError::Http(e.to_string()))?,
+            Selector::parse(".text-layout").map_err(|e| EngineError::Http(error_detail(&e)))?,
+            Selector::parse(".str_info").map_err(|e| EngineError::Http(error_detail(&e)))?,
+            Selector::parse(".star-wiki").map_err(|e| EngineError::Http(error_detail(&e)))?,
         ];
 
         let mut out = Vec::new();

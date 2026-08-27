@@ -98,6 +98,34 @@ bash scripts/termux-setup.sh --install-service   # 注册 termux-services 开机
 
 > 若已用 CI 发布的 `linux-aarch64` 静态产物（`educe-linux-aarch64`），也可直接 `chmod +x` 后运行，无需本机构建；但本机 bionic 构建对安卓 8.1 兼容性最稳。
 
+### Termux 故障排查：全部搜索源统一超时
+
+症状：所有源约 **8 秒**后失败（`4s 连接超时 × 2 次尝试 + 0.3s 退避`），电脑上正常。这通常不是引擎问题，而是手机网络层：系统 DNS 解析挂起，或 DNS 把 IPv6 排前而移动网络的 IPv6 链路不通。Educe 已内置对策（启动日志可见 `DNS 解析器就绪：IPv4 优先 + 解析硬超时`）：
+
+- **IPv4 优先**：解析结果把 IPv4 排前，IPv4 可用时立即建连，不被坏掉的 IPv6 拖累
+- **解析硬超时**：系统 getaddrinfo 挂起超过 `EDUCE_DNS_TIMEOUT_MS`（默认 3000ms）立即失败并明示 `DNS 解析超时`
+- **`EDUCE_NO_IPV6=1`**：IPv6 链路完全不可用时直接丢弃 IPv6 地址（终极手段，NAT64 / 纯 IPv6 网络请勿开启）
+
+先分清是哪一层的问题，在 Termux 里依次执行：
+
+```bash
+# 1) 网络可达性（curl 有 happy-eyeballs，能自动 IPv4/IPv6 回退）
+curl -v --connect-timeout 5 -m 10 https://www.baidu.com
+#    成功 → 网络通，问题在 Educe 的解析/建连顺序，重启后即生效
+#    超时 → 手机出站 TCP 被拦（防火墙 App / 受限网络 / 无外网），先修设备
+
+# 2) DNS 解析（看是否返回 IPv4、顺序如何）
+getent ahosts www.baidu.com
+#    长时间无输出 → 系统 DNS 不可用：可把解析器指到公共 DNS 再重启 Educe
+#    nameserver 223.5.5.5  # 追加到 $PREFIX/etc/resolv.conf（Termux 重启可能被覆盖）
+#    只出 IPv6 且 1) 超时 → 用 EDUCE_NO_IPV6=1 启动
+
+# 3) 路由（确认 IPv6 默认路由是否存在）
+ip route; ip -6 route
+```
+
+若 1) 中 curl 成功而 Educe 仍全部超时，请带上 `RUST_LOG=debug ./target/release-termux/educe serve` 的日志（现在错误已串联完整原因链，如 `请求失败(baidu): url ← ... ← tcp connect error: Operation timed out`，能直接看出 DNS / 连接 / TLS 哪一层失败）反馈到 Issue。
+
 ## 配置说明（config.example.toml）
 
 ```toml

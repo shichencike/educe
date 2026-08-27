@@ -7,7 +7,7 @@ use async_trait::async_trait;
 use scraper::{Html, Selector};
 
 use crate::engines::common::{clean_text, clip, encode_query_pct};
-use crate::engines::{Engine, EngineContext, EngineError};
+use crate::engines::{Engine, EngineContext, EngineError, error_detail};
 use std::borrow::Cow;
 
 use crate::models::{Category, EngineMeta, SearchResult};
@@ -93,10 +93,10 @@ impl Engine for Google {
                 )],
             )
             .await
-            .map_err(|e| EngineError::Http(e.to_string()))?
+            .map_err(|e| EngineError::Http(error_detail(&e)))?
             .text()
             .await
-            .map_err(|e| EngineError::Http(e.to_string()))?;
+            .map_err(|e| EngineError::Http(error_detail(&e)))?;
 
         let parsed = self.parse_html(&html);
         if parsed.is_empty() {
@@ -105,7 +105,7 @@ impl Engine for Google {
                 let rendered = renderer
                     .render(&url)
                     .await
-                    .map_err(|e| EngineError::Http(e.to_string()))?;
+                    .map_err(|e| EngineError::Http(error_detail(&e)))?;
                 let parsed2 = self.parse_html(&rendered);
                 if !parsed2.is_empty() {
                     return Ok(parsed2

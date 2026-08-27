@@ -1,6 +1,7 @@
 mod cache;
 mod cli;
 mod config;
+mod dns;
 mod custom;
 mod engines;
 mod http;

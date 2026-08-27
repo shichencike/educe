@@ -34,6 +34,8 @@ use crate::http::HttpClient;
 use crate::jsrender::JsRenderer;
 use crate::models::{EngineMeta, SearchResult};
 
+pub use common::error_detail;
+
 /// 引擎执行错误（分类用于重试决策与前端展示）。
 #[derive(Debug, thiserror::Error)]
 pub enum EngineError {

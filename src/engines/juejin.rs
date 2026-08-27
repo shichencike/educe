@@ -5,7 +5,7 @@
 use async_trait::async_trait;
 
 use crate::engines::common::{clip, encode_query_pct};
-use crate::engines::{Engine, EngineContext, EngineError};
+use crate::engines::{Engine, EngineContext, EngineError, error_detail};
 use std::borrow::Cow;
 
 use crate::models::{Category, EngineMeta, SearchResult};
@@ -41,7 +41,7 @@ impl Engine for Juejin {
             .http
             .get_with_headers("juejin", &url, &[("Referer", "https://juejin.cn/search")])
             .await
-            .map_err(|e| EngineError::Http(e.to_string()))?;
+            .map_err(|e| EngineError::Http(error_detail(&e)))?;
         if !resp.status().is_success() {
             return Err(EngineError::Http(format!(
                 "HTTP {}",

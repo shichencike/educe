@@ -3,7 +3,7 @@
 use async_trait::async_trait;
 
 use crate::engines::common::{clip, encode_query_pct};
-use crate::engines::{Engine, EngineContext, EngineError};
+use crate::engines::{Engine, EngineContext, EngineError, error_detail};
 use std::borrow::Cow;
 
 use crate::models::{Category, EngineMeta, SearchResult};
@@ -39,7 +39,7 @@ impl Engine for GitHub {
             .http
             .get_with_headers("github", &url, &[("Accept", "application/vnd.github+json")])
             .await
-            .map_err(|e| EngineError::Http(e.to_string()))?;
+            .map_err(|e| EngineError::Http(error_detail(&e)))?;
 
         if resp.status().as_u16() == 403 {
             return Err(EngineError::Blocked(
