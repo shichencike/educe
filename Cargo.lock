@@ -516,7 +516,7 @@ dependencies = [
 
 [[package]]
 name = "educe"
-version = "2.2.3"
+version = "2.3.0"
 dependencies = [
  "anyhow",
  "async-trait",

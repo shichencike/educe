@@ -2,7 +2,21 @@
 
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 格式，版本号遵循[语义化版本](https://semver.org/lang/zh-CN/)。
 
-## [Unreleased]
+## [2.3.0] - 2026-08-28
+
+### 新增
+
+- **设置页可视化操作**（`src/web/settings.html`，保持 Chrome 70 兼容）：
+  - 复选框全部改为 **Switch 开关**样式（新标签页 / 代理池 / JS 桥 / 自定义引擎需 JS / 每引擎启用）
+  - **主题色板**：7 色可视化点选（蓝/紫/绿/橙/粉/青/红），`data-accent` 驱动 CSS 变量，设置页实时预览、保存后搜索页同步生效（`UserPrefs` 新增 `accent` 字段，cookie 持久化）
+  - **代理连通性测试**按钮：用当前填写（未保存）的配置实测代理是否可用，显示耗时与结果
+  - **自定义引擎解析预览**：填写选择器后输入测试关键词，实时预览解析出的结果卡片
+  - **配置备份导入/导出**：一键导出当前完整配置为 JSON 下载；选择文件导入，运行时部分立即生效
+- **后端可视化辅助接口**（`src/server.rs`）：
+  - `POST /api/runtime/test`：代理连通性测试（构建临时客户端实测，不保存、不影响现有连接）
+  - `POST /api/engines/custom/preview`：自定义引擎临时执行搜索并返回解析结果
+  - `GET /api/config/export` / `POST /api/config/import`：配置备份与恢复（运行时立即生效；静态部分写入 `config.toml`，原文件备份为 `config.toml.bak`；自定义引擎即时加载并持久化）
+  - `AppConfig` 系列结构体补 `Serialize`（导出需要）
 
 ### 修复
 
@@ -36,7 +50,7 @@
 
 ### 文档
 
-- README 特性列表更新：并发搜索建议、gzip 响应压缩、前端新交互与渲染性能优化说明。
+- README 特性列表更新：并发搜索建议、gzip 响应压缩、前端新交互与渲染性能优化、设置可视化操作说明。
 
 ## [2.2.3] - 2026-08-27
 
