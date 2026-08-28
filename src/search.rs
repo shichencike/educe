@@ -43,6 +43,8 @@ pub struct Aggregator {
 
 /// 网络类失败自动重试前的退避时长。
 const RETRY_BACKOFF: Duration = Duration::from_millis(300);
+/// 搜索建议单源硬超时：任一建议源挂起时不拖累输入框响应。
+const SUGGEST_TIMEOUT: Duration = Duration::from_secs(3);
 
 /// 搜索建议去重（保序）并截断到 10 条。
 fn dedup_suggestions(items: Vec<String>) -> Vec<String> {
@@ -53,6 +55,48 @@ fn dedup_suggestions(items: Vec<String>) -> Vec<String> {
         .filter(|s| !s.is_empty() && seen.insert(s.clone()))
         .take(10)
         .collect()
+}
+
+/// DuckDuckGo 建议接口（JSON）：数组格式 ["q", ["s1","s2"]] 或对象格式 {"suggestions": [...]}。
+async fn ddg_suggestions(http: &HttpClient, url: &str) -> Vec<String> {
+    let Ok(resp) = http.get("duckduckgo", url).await else {
+        return Vec::new();
+    };
+    if !resp.status().is_success() {
+        return Vec::new();
+    }
+    let Ok(v) = resp.json::<serde_json::Value>().await else {
+        return Vec::new();
+    };
+    let mut items: Vec<String> = Vec::new();
+    if let Some(arr) = v.as_array() {
+        if let Some(list) = arr.get(1).and_then(|x| x.as_array()) {
+            items.extend(list.iter().filter_map(|x| x.as_str().map(String::from)));
+        }
+    }
+    if items.is_empty() {
+        if let Some(list) = v.get("suggestions").and_then(|x| x.as_array()) {
+            items.extend(list.iter().filter_map(|x| x.as_str().map(String::from)));
+        }
+    }
+    items
+}
+
+/// 百度建议接口（JSONP，取 {q,s} 对象）。
+async fn baidu_suggestions(http: &HttpClient, url: &str) -> Vec<String> {
+    let Ok(text) = http.get_text("baidu", url).await else {
+        return Vec::new();
+    };
+    let (Some(start), Some(end)) = (text.find('{'), text.rfind('}')) else {
+        return Vec::new();
+    };
+    let Ok(v) = serde_json::from_str::<serde_json::Value>(&text[start..=end]) else {
+        return Vec::new();
+    };
+    v.get("s")
+        .and_then(|x| x.as_array())
+        .map(|list| list.iter().filter_map(|x| x.as_str().map(String::from)).collect())
+        .unwrap_or_default()
 }
 
 /// 单引擎执行结果（报告 + 结果列表）。
@@ -241,6 +285,14 @@ impl Aggregator {
         self.runtime.read().unwrap().clone()
     }
 
+    /// 当前引擎共享上下文（自定义引擎预览等临时执行用）。
+    pub fn engine_context(&self) -> EngineContext {
+        EngineContext {
+            http: self.http.read().unwrap().clone(),
+            js_render: self.js_render.read().unwrap().clone(),
+        }
+    }
+
     /// 应用运行时设置：重建 HTTP 客户端与 JS 渲染桥，持久化 runtime.toml。
     pub fn apply_runtime(&self, rs: &RuntimeSettings) -> Result<RuntimeSettings, String> {
         // 先构建新组件，失败则保持现状不变
@@ -261,8 +313,9 @@ impl Aggregator {
         Ok(rs.clone())
     }
 
-    /// 搜索建议（自动补全）：优先 DuckDuckGo 建议接口，失败/为空时回退百度建议。
-    /// 返回去重后的建议词（最多 10 条）。
+    /// 搜索建议（自动补全）：DuckDuckGo 与百度建议接口**并发**查询，
+    /// 优先取 DuckDuckGo 结果，失败/为空时回退百度；各源带 3s 硬超时，
+    /// 避免单源挂起拖累输入框响应。返回去重后的建议词（最多 10 条）。
     pub async fn suggest(&self, query: &str) -> Vec<String> {
         let q = query.trim();
         if q.is_empty() {
@@ -270,55 +323,27 @@ impl Aggregator {
         }
         let http = self.http.read().unwrap().clone();
 
-        // 1) DuckDuckGo autocomplete（JSON）
         let ddg_url = format!(
             "https://duckduckgo.com/ac/?q={}&type=list",
             crate::engines::common::encode_query_pct(q)
         );
-        if let Ok(resp) = http.get("duckduckgo", &ddg_url).await {
-            if resp.status().is_success() {
-                if let Ok(v) = resp.json::<serde_json::Value>().await {
-                    let mut items: Vec<String> = Vec::new();
-                    // 数组格式: ["q", ["s1","s2"]]
-                    if let Some(arr) = v.as_array() {
-                        if let Some(list) = arr.get(1).and_then(|x| x.as_array()) {
-                            items.extend(list.iter().filter_map(|x| x.as_str().map(String::from)));
-                        }
-                    }
-                    // 对象格式: {"suggestions": [...]}
-                    if items.is_empty() {
-                        if let Some(list) = v.get("suggestions").and_then(|x| x.as_array()) {
-                            items.extend(list.iter().filter_map(|x| x.as_str().map(String::from)));
-                        }
-                    }
-                    if !items.is_empty() {
-                        return dedup_suggestions(items);
-                    }
-                }
-            }
-        }
-
-        // 2) 百度建议（JSONP，取 {q,s} 对象）
         let bd_url = format!(
             "https://suggestion.baidu.com/su?wd={}&cb=educe",
             crate::engines::common::encode_query_pct(q)
         );
-        if let Ok(text) = http.get_text("baidu", &bd_url).await {
-            if let (Some(start), Some(end)) = (text.find('{'), text.rfind('}')) {
-                if let Ok(v) = serde_json::from_str::<serde_json::Value>(&text[start..=end]) {
-                    if let Some(list) = v.get("s").and_then(|x| x.as_array()) {
-                        let items: Vec<String> = list
-                            .iter()
-                            .filter_map(|x| x.as_str().map(String::from))
-                            .collect();
-                        if !items.is_empty() {
-                            return dedup_suggestions(items);
-                        }
-                    }
-                }
-            }
+
+        // 并发查询两个建议源：DDG 失败时无需再等一轮百度，直接取已就绪的百度结果
+        let (ddg, baidu) = tokio::join!(
+            tokio::time::timeout(SUGGEST_TIMEOUT, ddg_suggestions(&http, &ddg_url)),
+            tokio::time::timeout(SUGGEST_TIMEOUT, baidu_suggestions(&http, &bd_url)),
+        );
+        let ddg = ddg.unwrap_or_default();
+        let baidu = baidu.unwrap_or_default();
+
+        if !ddg.is_empty() {
+            return dedup_suggestions(ddg);
         }
-        Vec::new()
+        dedup_suggestions(baidu)
     }
 
     /// 执行一次聚合搜索（非流式，一次性返回全部结果）。
@@ -500,7 +525,9 @@ impl Aggregator {
         }
 
         let mut reports = Vec::with_capacity(selected.len());
-        let mut all: Vec<SearchResult> = Vec::new();
+        // 容量预分配：每源最多 max_per_source 条（按 30 封顶，避免极端配置下过度分配）
+        let mut all: Vec<SearchResult> =
+            Vec::with_capacity(selected.len().saturating_mul(max_per_source.min(30)));
         while let Some(outcome) = tasks.next().await {
             // 流式：每源完成立即推送（前端渐进渲染）
             if let Some(tx) = &tx {
@@ -532,10 +559,14 @@ impl Aggregator {
         // 用户权重覆盖时跳过（排序依赖偏好）
         if let Some(key) = cache_key {
             if !weight_overrides.as_ref().is_some_and(|m| !m.is_empty()) {
-                let win_base = offset.saturating_sub(max); // 上一页起
+                // 上一页起：offset 超出结果总数时收敛到 total，避免切片越界 panic
+                //（此前 offset=999999 等超界请求会直接触发 ranked[win_base..win_end] 越界崩溃）
+                let win_base = offset.saturating_sub(max).min(total);
                 let win_end = (offset + 2 * max).min(total); // 下一页止
-                self.cache
-                    .set(key, win_base, total, ranked[win_base..win_end].to_vec());
+                if win_base < win_end {
+                    self.cache
+                        .set(key, win_base, total, ranked[win_base..win_end].to_vec());
+                }
             }
         }
         let page: Vec<SearchResult> = ranked.into_iter().skip(offset).take(max).collect();
@@ -678,10 +709,15 @@ fn apply_scores(
     query: &str,
     weight_overrides: Option<&HashMap<String, f64>>,
 ) {
-    let words: Vec<String> = query
+    // 预处理查询词（小写 + 是否纯 ASCII 词），避免循环内重复计算
+    let words: Vec<(String, bool)> = query
         .split_whitespace()
         .map(|w| w.to_lowercase())
         .filter(|w| w.chars().count() >= 2)
+        .map(|w| {
+            let is_ascii = w.chars().all(|c| c.is_ascii_alphanumeric());
+            (w, is_ascii)
+        })
         .collect();
 
     for r in results.iter_mut() {
@@ -697,18 +733,24 @@ fn apply_scores(
         if !words.is_empty() {
             let title_lower = r.title.to_lowercase();
             let snip_lower = r.snippet.to_lowercase();
-            for w in &words {
-                let hit_title = if w.chars().all(|c| c.is_ascii_alphanumeric()) {
-                    title_lower
-                        .split(|c: char| !c.is_ascii_alphanumeric())
-                        .any(|t| t == w.as_str())
+            // 一次性把标题/摘要分词为集合：英文词边界匹配变成 O(1) 查集，
+            // 避免对每个关键词重复 split 整段文本（原实现 O(词数 × 文本长度)）
+            let title_tokens: std::collections::HashSet<&str> = title_lower
+                .split(|c: char| !c.is_ascii_alphanumeric())
+                .filter(|t| !t.is_empty())
+                .collect();
+            let snip_tokens: std::collections::HashSet<&str> = snip_lower
+                .split(|c: char| !c.is_ascii_alphanumeric())
+                .filter(|t| !t.is_empty())
+                .collect();
+            for (w, is_ascii) in &words {
+                let hit_title = if *is_ascii {
+                    title_tokens.contains(w.as_str())
                 } else {
                     title_lower.contains(w.as_str())
                 };
-                let hit_snip = if w.chars().all(|c| c.is_ascii_alphanumeric()) {
-                    snip_lower
-                        .split(|c: char| !c.is_ascii_alphanumeric())
-                        .any(|t| t == w.as_str())
+                let hit_snip = if *is_ascii {
+                    snip_tokens.contains(w.as_str())
                 } else {
                     snip_lower.contains(w.as_str())
                 };

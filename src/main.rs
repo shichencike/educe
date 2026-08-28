@@ -31,10 +31,7 @@ fn main() -> anyhow::Result<()> {
         Cmd::Serve { config } => {
             let cfg = Arc::new(AppConfig::load(Some(&config))?);
             init_tracing(&cfg.logging.level);
-            let rt = tokio::runtime::Builder::new_multi_thread()
-                .enable_all()
-                .build()?;
-            rt.block_on(server::serve(cfg))
+            build_runtime()?.block_on(server::serve(cfg))
         }
         Cmd::Sources { config } => {
             let cfg = Arc::new(AppConfig::load(Some(&config))?);
@@ -73,10 +70,8 @@ fn main() -> anyhow::Result<()> {
                     .collect()
             });
             let agg = Aggregator::new(cfg)?;
-            let rt = tokio::runtime::Builder::new_multi_thread()
-                .enable_all()
-                .build()?;
-            let resp = rt.block_on(agg.search(&query, filter.as_deref(), 0, max, None));
+            let resp = build_runtime()?
+                .block_on(agg.search(&query, filter.as_deref(), 0, max, None));
 
             if json {
                 println!("{}", serde_json::to_string_pretty(&resp)?);
@@ -115,6 +110,13 @@ fn main() -> anyhow::Result<()> {
             Ok(())
         }
     }
+}
+
+/// 构建 tokio 多线程运行时（IO / 时间 / 信号等全部能力）。
+fn build_runtime() -> anyhow::Result<tokio::runtime::Runtime> {
+    Ok(tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()?)
 }
 
 /// 依据配置初始化 tracing（可用 RUST_LOG 环境变量覆盖）。

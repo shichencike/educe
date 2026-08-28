@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" id="themeColor" content="#0e1117">
 <title>Educe 元搜索引擎</title>
 <style>
   /* ===== 主题变量（深色默认；body.light 覆盖）===== */
@@ -17,6 +18,13 @@
     --text: #1b2233; --muted: #5c6678;
     --shadow: 0 6px 20px rgba(30,40,80,.08);
   }
+  /* ===== 主题色板（body[data-accent] 覆盖强调色，与设置页一致）===== */
+  body[data-accent="purple"] { --accent: #a78bfa; --accent2: #8b5cf6; }
+  body[data-accent="green"]  { --accent: #34d399; --accent2: #10b981; }
+  body[data-accent="orange"] { --accent: #fb923c; --accent2: #f97316; }
+  body[data-accent="pink"]   { --accent: #f472b6; --accent2: #ec4899; }
+  body[data-accent="cyan"]   { --accent: #22d3ee; --accent2: #06b6d4; }
+  body[data-accent="red"]    { --accent: #f87171; --accent2: #ef4444; }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   html, body { height: 100%; }
   body {
@@ -210,6 +218,35 @@
   @keyframes rot { to { transform: rotate(360deg); } }
   footer { margin-top: 46px; color: var(--muted); font-size: 12px; text-align: center; line-height: 1.8; }
 
+  /* ===== 搜索后紧凑态（SearXNG 风格：hero 收缩让位给结果）===== */
+  body.searched .hero { padding: 12px 0 2px; }
+  body.searched .hero .logo { font-size: 26px; }
+  body.searched .hero .sub { display: none; }
+  .hero { transition: padding .2s; }
+  .hero .logo { transition: font-size .2s; }
+
+  /* ===== 回到顶部 ===== */
+  #toTop {
+    position: fixed; right: 18px; bottom: 22px; z-index: 45;
+    width: 40px; height: 40px; border-radius: 50%;
+    border: 1px solid var(--border); background: var(--panel); color: var(--muted);
+    font-size: 16px; cursor: pointer; box-shadow: var(--shadow); display: none;
+    transition: color .15s, border-color .15s, transform .1s;
+  }
+  #toTop:hover { color: var(--accent); border-color: var(--accent); }
+  #toTop:active { transform: scale(.92); }
+
+  /* ===== 无障碍：键盘焦点环 + 减少动效偏好 ===== */
+  .icon-btn:focus, .src-chip:focus, .pager button:focus, .more:focus, #toTop:focus {
+    outline: 2px solid var(--accent); outline-offset: 2px;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: .01ms !important;
+      transition-duration: .01ms !important;
+    }
+  }
+
   /* ===== 响应式（移动端）===== */
   @media (max-width: 640px) {
     .wrap { padding: 0 12px 50px; }
@@ -300,8 +337,11 @@ function applyTheme() {
   let light = pref === 'light';
   if (pref === 'auto') light = systemPrefersLight();
   document.body.classList.toggle('light', light);
+  document.body.dataset.accent = userPrefs.accent || 'blue';
   const btn = $('themeBtn');
   if (btn) btn.textContent = light ? '☀️' : '🌙';
+  const tc = document.getElementById('themeColor');
+  if (tc) tc.content = light ? '#f4f6fb' : '#0e1117';
 }
 
 // ===== 全局状态 =====
@@ -322,23 +362,27 @@ let instantTimer = null;   // 即时搜索防抖定时器
 let suggestTimer = null;   // 建议防抖定时器
 let suggestItems = [];     // 当前建议列表
 let suggestIdx = -1;       // 建议高亮下标
+let searchStart = 0;       // 本次搜索开始时间（实时耗时显示）
 
-// 关键词高亮：每查询预编译一次正则，避免逐条结果重复 new RegExp（性能优化）
+// 关键词高亮：每查询预编译一次**单个交替正则**，一次 replace 完成全部高亮，
+// 避免逐词多次 replace 反复重建字符串（原实现 O(词数 × 文本长度) → O(文本长度)）。
 let hlWords = [];
-let hlRes = [];
+let hlRe = null;
 
 function compileHighlight(query) {
   hlWords = (query || '').trim().split(/\s+/).filter(w => w.length >= 2);
-  hlRes = hlWords.map(w => new RegExp('(' + w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')', 'gi'));
+  if (!hlWords.length) { hlRe = null; return; }
+  // 长词优先：避免 "rust" 先匹配而 "rusty" 永远不生效
+  const parts = hlWords
+    .map(w => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+    .sort((a, b) => b.length - a.length);
+  hlRe = new RegExp('(' + parts.join('|') + ')', 'gi');
 }
 
 function highlight(text) {
-  let out = esc(text);
-  if (!hlRes.length) return out;
-  for (let i = 0; i < hlRes.length; i++) {
-    out = out.replace(hlRes[i], '<mark>$1</mark>');
-  }
-  return out;
+  const out = esc(text);
+  if (!hlRe) return out;
+  return out.replace(hlRe, '<mark>$1</mark>');
 }
 
 // ===== 移动端 vh 修复（地址栏收展导致 100vh 跳动）=====
@@ -370,16 +414,21 @@ const MEM_MAX = 200;          // 内存缓存条数
 let memCache = new Map();     // key -> { total, results }
 let memFifo = [];             // 内存 FIFO 键序
 
+// IndexedDB 连接复用：首次 open 后缓存 promise，避免每次翻页/写缓存都重新建连
+let idbConn = null;
+
 function openIdb() {
-  return new Promise((resolve, reject) => {
+  if (idbConn) return idbConn;
+  idbConn = new Promise((resolve, reject) => {
     const req = indexedDB.open(IDB_NAME, 1);
     req.onupgradeneeded = () => {
       const db = req.result;
       if (!db.objectStoreNames.contains(IDB_STORE)) db.createObjectStore(IDB_STORE);
     };
     req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
+    req.onerror = () => { idbConn = null; reject(req.error); };
   });
+  return idbConn;
 }
 
 function idbGet(key) {
@@ -491,24 +540,26 @@ function selectedSources() {
 }
 
 // ===== 渲染 =====
+// 引擎状态行缓存：id -> 行元素，只更新本次变更的一行，避免每源完成都全量重建列表
+let statusRows = {};
+
 function renderStatus(engine) {
   // engine: {id, count, time_ms, error, done}
   const panel = $('statusPanel');
   panel.style.display = 'block';
-  let rows = {};
-  const raw = $('statusList').dataset.rows;
-  if (raw) { try { rows = JSON.parse(raw); } catch (e) {} }
-  rows[engine.id] = engine;
-  $('statusList').dataset.rows = JSON.stringify(rows);
-  const ids = Object.keys(rows);
-  $('statusList').innerHTML = ids.map(id => {
-    const r = rows[id];
-    let state;
-    if (r.error) state = '<span class="st-err">✗ ' + esc(r.error) + '</span>';
-    else if (r.done) state = '<span class="st-ok">✓ ' + r.count + ' 条</span>';
-    else state = '<span class="st-warn">… 等待中</span>';
-    return '<div class="engine-row"><span>' + esc(r.id) + ' · ' + r.time_ms + 'ms</span>' + state + '</div>';
-  }).join('');
+  const list = $('statusList');
+  let row = statusRows[engine.id];
+  if (!row) {
+    row = document.createElement('div');
+    row.className = 'engine-row';
+    list.appendChild(row);
+    statusRows[engine.id] = row;
+  }
+  let state;
+  if (engine.error) state = '<span class="st-err">✗ ' + esc(engine.error) + '</span>';
+  else if (engine.done) state = '<span class="st-ok">✓ ' + engine.count + ' 条</span>';
+  else state = '<span class="st-warn">… 等待中</span>';
+  row.innerHTML = '<span>' + esc(engine.id) + ' · ' + engine.time_ms + 'ms</span>' + state;
 }
 
 // 构建单条结果 HTML（高亮使用预编译正则）
@@ -572,8 +623,10 @@ function showError(msg) {
 }
 
 function showSkeleton() {
+  // 骨架屏条数随每页结果数伸缩（10→3 条，100+→6 条），更贴近真实加载形态
+  const n = Math.min(6, Math.max(3, Math.round((currentMax || 50) / 15)));
   let html = '';
-  for (let i = 0; i < 3; i++) {
+  for (let i = 0; i < n; i++) {
     html += '<div class="skel">' +
       '<div class="bar b1"></div><div class="bar b2"></div><div class="bar b3"></div>' +
       '</div>';
@@ -639,11 +692,21 @@ function closeStream() {
   liveMode = false;
 }
 
+// 搜索按钮忙碌态：搜索期间禁用并显示进度文案
+function setSearchBusy(b) {
+  const btn = $('btn');
+  if (!btn) return;
+  btn.disabled = b;
+  btn.textContent = b ? '搜索中…' : '搜索';
+}
+
 function doSearch(offset) {
   const q = $('q').value.trim();
   if (!q) { $('results').innerHTML = '<div class="empty">请输入关键词</div>'; return; }
 
   const seq = ++searchSeq;
+  searchStart = Date.now();
+  document.body.classList.add('searched'); // 紧凑 hero，让位给结果
   currentQuery = q;
   currentOffset = offset || 0;
   currentMax = userPrefs.results_per_page > 0 ? userPrefs.results_per_page : 50;
@@ -664,6 +727,7 @@ function doSearch(offset) {
   $('statusPanel').style.display = 'none';
   showSkeleton();
   $('pager').style.display = 'none';
+  setSearchBusy(true);
 
   // 本地页面缓存（IndexedDB）：命中直接渲染，不请求服务端
   getLocalPage(currentOffset).then(local => {
@@ -674,6 +738,7 @@ function doSearch(offset) {
       renderPager();
       updateMeta('<span>共 ' + totalResults + ' 条结果</span><span>本地缓存</span>', false);
       scrollTopSmooth();
+      setSearchBusy(false);
       return;
     }
     doSearchNetwork(seq, q, src);
@@ -722,9 +787,15 @@ function onEngineEvent(seq, data) {
   });
   // 渐进渲染：只追加本次返回的结果（不整体重建 DOM）
   const added = data.results || [];
-  streamResults = streamResults.concat(added);
-  if (added.length) appendResults(added);
-  updateMeta('<span class="total">已返回 ' + engineDone + '/' + engineTotal + ' 个源</span>', true);
+  if (added.length) {
+    streamResults.push.apply(streamResults, added); // push 原地扩展，避免 concat 每次新建数组（O(n²)）
+    appendResults(added);
+  }
+  // 实时耗时：本次搜索开始至今，配合"已返回 X/Y"给用户进度感
+  const secs = ((Date.now() - searchStart) / 1000).toFixed(1);
+  updateMeta('<span class="total">已返回 ' + engineDone + '/' + engineTotal + ' 个源</span>' +
+    '<span>累计 ' + streamResults.length + ' 条</span>' +
+    '<span>已用 ' + secs + 's</span>', true);
 }
 
 function onDoneEvent(seq, data) {
@@ -741,6 +812,7 @@ function onDoneEvent(seq, data) {
   setLocalPage(currentOffset, data.results || [], totalResults);
   renderPager();
   scrollTopSmooth();
+  setSearchBusy(false);
 }
 
 async function fetchSearch(seq, params) {
@@ -761,8 +833,10 @@ async function fetchSearch(seq, params) {
     }
     renderPager();
     scrollTopSmooth();
+    setSearchBusy(false);
   } catch (err) {
     if (seq !== searchSeq) return;
+    setSearchBusy(false);
     showError(err.message);
     updateMeta('', false);
   }
@@ -798,6 +872,39 @@ function pickSuggest(i) {
 
 // ===== 事件绑定 =====
 $('btn').addEventListener('click', () => doSearch(0));
+
+// 回到顶部浮动按钮：滚动超过一屏才显示
+const toTopBtn = document.createElement('button');
+toTopBtn.id = 'toTop';
+toTopBtn.type = 'button';
+toTopBtn.title = '回到顶部';
+toTopBtn.textContent = '↑';
+toTopBtn.addEventListener('click', scrollTopSmooth);
+document.body.appendChild(toTopBtn);
+let toTopShown = false;
+window.addEventListener('scroll', () => {
+  const show = (window.pageYOffset || document.documentElement.scrollTop) > window.innerHeight;
+  if (show !== toTopShown) {
+    toTopShown = show;
+    toTopBtn.style.display = show ? 'block' : 'none';
+  }
+}, { passive: true });
+
+// 快捷键：Ctrl/Cmd+K 聚焦搜索框；"/" 在非输入态下也聚焦
+document.addEventListener('keydown', (e) => {
+  const t = e.target;
+  const typing = t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable);
+  if ((e.ctrlKey || e.metaKey) && (e.key === 'k' || e.key === 'K')) {
+    e.preventDefault();
+    $('q').focus();
+    return;
+  }
+  if (!typing && e.key === '/' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+    e.preventDefault();
+    $('q').focus();
+  }
+});
+
 $('pager').addEventListener('click', onPagerClick);
 $('themeBtn').addEventListener('click', () => {
   userPrefs.theme = document.body.classList.contains('light') ? 'dark' : 'light';

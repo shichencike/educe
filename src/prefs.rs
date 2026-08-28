@@ -31,6 +31,8 @@ pub struct UserPrefs {
     pub lang: String,
     /// 主题 dark | light
     pub theme: String,
+    /// 主题强调色（色板名：blue | purple | green | orange | pink | cyan）
+    pub accent: String,
     /// 每页结果数（/api/search 的 max 缺省值）
     pub results_per_page: usize,
     /// 结果是否新标签页打开
@@ -46,6 +48,7 @@ impl Default for UserPrefs {
         UserPrefs {
             lang: "zh".into(),
             theme: "dark".into(),
+            accent: "blue".into(),
             results_per_page: 50,
             open_in_new_tab: true,
             timeout_ms: 0,
@@ -85,6 +88,9 @@ impl UserPrefs {
         }
         if !other.theme.is_empty() {
             self.theme = other.theme.clone();
+        }
+        if !other.accent.is_empty() {
+            self.accent = other.accent.clone();
         }
         if other.results_per_page != 0 {
             self.results_per_page = other.results_per_page;
@@ -183,6 +189,7 @@ mod tests {
         let prefs = UserPrefs {
             lang: "zh".into(),
             theme: "light".into(),
+            accent: "green".into(),
             results_per_page: 30,
             open_in_new_tab: false,
             timeout_ms: 5000,
@@ -197,6 +204,7 @@ mod tests {
         let cookie = prefs.to_cookie();
         let back = UserPrefs::from_cookie(&cookie).expect("cookie 应可解码");
         assert_eq!(back.theme, "light");
+        assert_eq!(back.accent, "green");
         assert_eq!(back.results_per_page, 30);
         assert!(!back.open_in_new_tab);
         assert_eq!(back.timeout_ms, 5000);

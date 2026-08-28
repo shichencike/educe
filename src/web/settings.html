@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" id="themeColor" content="#0e1117">
 <title>设置 · Educe</title>
 <style>
   /* ===== 主题变量（与搜索页保持一致）===== */
@@ -17,6 +18,13 @@
     --text: #1b2233; --muted: #5c6678;
     --shadow: 0 6px 20px rgba(30,40,80,.08);
   }
+  /* ===== 主题色板（body[data-accent] 覆盖强调色）===== */
+  body[data-accent="purple"] { --accent: #a78bfa; --accent2: #8b5cf6; }
+  body[data-accent="green"]  { --accent: #34d399; --accent2: #10b981; }
+  body[data-accent="orange"] { --accent: #fb923c; --accent2: #f97316; }
+  body[data-accent="pink"]   { --accent: #f472b6; --accent2: #ec4899; }
+  body[data-accent="cyan"]   { --accent: #22d3ee; --accent2: #06b6d4; }
+  body[data-accent="red"]    { --accent: #f87171; --accent2: #ef4444; }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   html, body { height: 100%; }
   body {
@@ -68,15 +76,54 @@
   .row input[type=text] { width: 280px; max-width: 55vw; }
   .row textarea { width: 300px; max-width: 55vw; font-family: inherit; resize: vertical; }
 
-  /* Chrome 70 兼容：不用 accent-color，自绘复选框（appearance:none）*/
-  .row input[type=checkbox] {
+  /* ===== 主题色板（可视化点选）===== */
+  .palette { display: flex; flex-wrap: wrap; align-items: center; }
+  .palette .sw {
+    width: 26px; height: 26px; border-radius: 50%; margin: 3px 8px 3px 0;
+    cursor: pointer; border: 2px solid transparent; padding: 0; flex-shrink: 0;
+    transition: transform .1s, border-color .15s;
+  }
+  .palette .sw:hover { transform: scale(1.12); }
+  .palette .sw.on { border-color: var(--text); transform: scale(1.12); }
+  .palette .sw-name { font-size: 12px; color: var(--muted); }
+
+  /* ===== 代理连通性测试 ===== */
+  #proxyTestResult { font-size: 13px; margin-left: 6px; }
+  #proxyTestResult.t-ok { color: var(--ok); }
+  #proxyTestResult.t-err { color: var(--err); }
+  #proxyTestResult.t-wait { color: var(--muted); }
+
+  /* ===== 自定义引擎解析预览 ===== */
+  .ce-test { display: flex; align-items: center; flex-wrap: wrap; max-width: 55vw; }
+  .ce-test input[type=text] { width: 220px; margin-right: 8px; }
+  #cePreview { margin-top: 12px; }
+  #cePreview .pv-head { font-size: 13px; color: var(--ok); margin-bottom: 8px; }
+  #cePreview .pv-item {
+    border: 1px solid var(--border); border-radius: 10px; padding: 9px 12px;
+    margin-bottom: 8px; background: var(--panel2); font-size: 13px;
+  }
+  #cePreview .pv-item a { color: var(--accent); font-weight: 600; }
+  #cePreview .pv-url { font-size: 11px; color: var(--ok); margin: 3px 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #cePreview .pv-snip { color: var(--muted); font-size: 12px; line-height: 1.6; }
+  #cePreview .pv-empty, #cePreview .pv-err { font-size: 13px; color: var(--err); }
+  #cePreview .pv-wait { font-size: 13px; color: var(--muted); }
+
+  /* Switch 开关（Chrome 70 兼容：不用 accent-color，appearance:none + 伪元素旋钮）*/
+  input[type=checkbox].switch {
     -webkit-appearance: none; appearance: none;
-    width: 19px; height: 19px; border: 2px solid var(--border); border-radius: 6px;
-    background: var(--panel2); cursor: pointer; flex-shrink: 0;
+    width: 42px; height: 24px; border: 2px solid var(--border); border-radius: 999px;
+    background: var(--panel2); cursor: pointer; position: relative; flex-shrink: 0;
     transition: background .15s, border-color .15s;
   }
-  .row input[type=checkbox]:checked { background: var(--accent); border-color: var(--accent); }
-  .row input[type=checkbox]:active { transform: scale(.9); }
+  input[type=checkbox].switch::after {
+    content: ''; position: absolute; top: 2px; left: 2px;
+    width: 16px; height: 16px; border-radius: 50%;
+    background: var(--muted); transition: left .15s, background .15s;
+  }
+  input[type=checkbox].switch:checked { background: var(--accent); border-color: var(--accent); }
+  input[type=checkbox].switch:checked::after { left: 20px; background: #fff; }
+  input[type=checkbox].switch:active { transform: scale(.95); }
+  input[type=checkbox].switch:focus { outline: 2px solid var(--accent); outline-offset: 2px; }
 
   .btns .del {
     background: transparent; color: var(--err); border: 1px solid var(--border);
@@ -99,13 +146,20 @@
   .engine-row .ctl { display: flex; align-items: center; margin-left: 10px; }
   .engine-row .ctl > * { margin-right: 8px; }
   .engine-row .ctl > *:last-child { margin-right: 0; }
-  .engine-row input[type=checkbox] {
+  .engine-row input[type=checkbox].switch {
     -webkit-appearance: none; appearance: none;
-    width: 17px; height: 17px; border: 2px solid var(--border); border-radius: 5px;
-    background: var(--panel2); cursor: pointer; flex-shrink: 0;
+    width: 38px; height: 22px; border: 2px solid var(--border); border-radius: 999px;
+    background: var(--panel2); cursor: pointer; position: relative; flex-shrink: 0;
     transition: background .15s, border-color .15s;
   }
-  .engine-row input[type=checkbox]:checked { background: var(--accent); border-color: var(--accent); }
+  .engine-row input[type=checkbox].switch::after {
+    content: ''; position: absolute; top: 2px; left: 2px;
+    width: 14px; height: 14px; border-radius: 50%;
+    background: var(--muted); transition: left .15s, background .15s;
+  }
+  .engine-row input[type=checkbox].switch:checked { background: var(--accent); border-color: var(--accent); }
+  .engine-row input[type=checkbox].switch:checked::after { left: 18px; background: #fff; }
+  .engine-row input[type=checkbox].switch:active { transform: scale(.95); }
   .engine-row input[type=number] {
     width: 76px; background: var(--panel2); color: var(--text);
     border: 1px solid var(--border); border-radius: 8px; padding: 4px 8px; font-size: 13px; outline: none;
@@ -135,6 +189,9 @@
   #msgCustom { margin-top: 10px; font-size: 13px; min-height: 20px; }
   #msgCustom.ok { color: var(--ok); }
   #msgCustom.err { color: var(--err); }
+  #msgConfig { margin-top: 10px; font-size: 13px; min-height: 20px; }
+  #msgConfig.ok { color: var(--ok); }
+  #msgConfig.err { color: var(--err); }
 
   /* ===== 响应式（移动端）===== */
   @media (max-width: 640px) {
@@ -178,6 +235,12 @@
       </select>
     </div>
     <div class="row">
+      <label>主题色
+        <span class="hint">界面强调色（按钮 / 链接 / 开关 / 高亮）</span>
+      </label>
+      <div class="palette" id="palette"><!-- 色板由 JS 填充 --></div>
+    </div>
+    <div class="row">
       <label>每页结果数
         <span class="hint">未指定 max 时的默认结果数量</span>
       </label>
@@ -195,7 +258,7 @@
       <label>新标签页打开结果
         <span class="hint">点击结果时是否新开浏览器标签</span>
       </label>
-      <input type="checkbox" id="newtab">
+      <input type="checkbox" id="newtab" class="switch">
     </div>
     <div class="row">
       <label>单源超时（毫秒）
@@ -222,7 +285,7 @@
       <label>启用代理池
         <span class="hint">所有引擎请求经代理转发；支持 http / https / socks5</span>
       </label>
-      <input type="checkbox" id="proxyEnabled">
+      <input type="checkbox" id="proxyEnabled" class="switch">
     </div>
     <div class="row">
       <label>代理地址（每行一个）
@@ -239,6 +302,13 @@
         <option value="random">随机 random</option>
       </select>
     </div>
+    <div class="row">
+      <label>连通性测试
+        <span class="hint">用当前填写（未保存）的配置实测代理是否可用，不影响现有连接</span>
+      </label>
+      <button class="mini" id="proxyTestBtn" onclick="testProxy()">测试连接</button>
+      <span id="proxyTestResult"></span>
+    </div>
   </div>
 
   <div class="section">
@@ -247,7 +317,7 @@
       <label>启用 JS 渲染桥
         <span class="hint">让外部命令（Node+puppeteer 等）渲染页面后回传 HTML 解析，用于知乎/CSDN/Google 等源</span>
       </label>
-      <input type="checkbox" id="jsEnabled">
+      <input type="checkbox" id="jsEnabled" class="switch">
     </div>
     <div class="row">
       <label>渲染命令
@@ -298,7 +368,7 @@
       <label>需要 JS 渲染
         <span class="hint">该源页面需执行 JS 时勾选（需启用上方 JS 渲染桥）</span>
       </label>
-      <input type="checkbox" id="ceJs">
+      <input type="checkbox" id="ceJs" class="switch">
     </div>
     <div class="row">
       <label>URL 模板
@@ -330,10 +400,37 @@
       </label>
       <input type="text" id="ceSnippet" placeholder="p.desc">
     </div>
+    <div class="row">
+      <label>解析测试
+        <span class="hint">输入测试关键词，实时预览该配置解析出的结果（不保存）</span>
+      </label>
+      <div class="ce-test">
+        <input type="text" id="ceTestQuery" placeholder="测试关键词，如 rust 异步">
+        <button class="mini" id="ceTestBtn" onclick="testCustom()">测试解析</button>
+      </div>
+    </div>
+    <div id="cePreview"><!-- 解析结果预览 --></div>
     <div class="btns">
       <button class="save" onclick="addCustom()">添加 / 更新</button>
     </div>
     <div id="msgCustom"></div>
+  </div>
+
+  <div class="section">
+    <h2>配置备份（导入 / 导出）</h2>
+    <div class="row">
+      <label>导出当前配置
+        <span class="hint">下载当前生效的完整配置（静态 config + 运行时 + 自定义引擎）为 JSON 文件</span>
+      </label>
+      <button class="mini" id="exportBtn" onclick="exportConfig()">导出配置</button>
+    </div>
+    <div class="row">
+      <label>导入配置
+        <span class="hint">选择之前导出的 JSON 文件；运行时设置立即生效，静态配置写入 config.toml（重启后完全生效）</span>
+      </label>
+      <input type="file" id="configFile" accept=".json,application/json" style="max-width:55vw">
+    </div>
+    <div id="msgConfig"></div>
   </div>
 
   <div class="btns">
@@ -362,9 +459,44 @@ function applyThemePreview() {
   let light = pref === 'light';
   if (pref === 'auto') light = systemPrefersLight();
   document.body.classList.toggle('light', light);
+  document.body.dataset.accent = prefs.accent || 'blue';
+  const tc = document.getElementById('themeColor');
+  if (tc) tc.content = light ? '#f4f6fb' : '#0e1117';
 }
 
-let prefs = { lang: 'zh', theme: 'dark', results_per_page: 50, open_in_new_tab: true, timeout_ms: 0, engines: {} };
+// ===== 主题色板（可视化点选）=====
+const ACCENTS = [
+  { name: 'blue',   c1: '#5b8cff', c2: '#7c5bff', label: '蓝' },
+  { name: 'purple', c1: '#a78bfa', c2: '#8b5cf6', label: '紫' },
+  { name: 'green',  c1: '#34d399', c2: '#10b981', label: '绿' },
+  { name: 'orange', c1: '#fb923c', c2: '#f97316', label: '橙' },
+  { name: 'pink',   c1: '#f472b6', c2: '#ec4899', label: '粉' },
+  { name: 'cyan',   c1: '#22d3ee', c2: '#06b6d4', label: '青' },
+  { name: 'red',    c1: '#f87171', c2: '#ef4444', label: '红' },
+];
+
+function renderPalette() {
+  const box = $('palette');
+  box.innerHTML = '';
+  const cur = prefs.accent || 'blue';
+  for (let i = 0; i < ACCENTS.length; i++) {
+    const a = ACCENTS[i];
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'sw' + (a.name === cur ? ' on' : '');
+    btn.title = a.label;
+    btn.style.background = 'linear-gradient(135deg,' + a.c1 + ',' + a.c2 + ')';
+    btn.dataset.accent = a.name;
+    btn.addEventListener('click', function () {
+      prefs.accent = a.name;
+      document.body.dataset.accent = a.name;
+      renderPalette(); // 刷新选中态（保存时随 save() 提交）
+    });
+    box.appendChild(btn);
+  }
+}
+
+let prefs = { lang: 'zh', theme: 'dark', accent: 'blue', results_per_page: 50, open_in_new_tab: true, timeout_ms: 0, engines: {} };
 
 async function load() {
   try {
@@ -375,6 +507,7 @@ async function load() {
     $('rpp').value = String(prefs.results_per_page || 50);
     $('newtab').checked = prefs.open_in_new_tab !== false;
     $('timeout').value = prefs.timeout_ms || 0;
+    renderPalette();
     renderEngines();
     applyThemePreview();
   } catch (e) {
@@ -396,7 +529,7 @@ function renderEngines() {
       '<span class="cat">' + (catName[metaCat[id]] || '源') + '</span>' +
       (metaJs[id] ? '<span class="jsb">需JS</span>' : '') + '</div>' +
       '<div class="ctl">' +
-      '<input type="checkbox" data-enable="' + esc(id) + '"' + (p.enabled ? ' checked' : '') + '>' +
+      '<input type="checkbox" class="switch" data-enable="' + esc(id) + '"' + (p.enabled ? ' checked' : '') + '>' +
       '<span class="lab">启用</span>' +
       '</div>' +
       '<div class="ctl">' +
@@ -431,6 +564,7 @@ function save() {
   const body = {
     lang: $('lang').value,
     theme: $('theme').value,
+    accent: prefs.accent || 'blue',
     results_per_page: parseInt($('rpp').value, 10) || 50,
     open_in_new_tab: $('newtab').checked,
     timeout_ms: parseInt($('timeout').value, 10) || 0,
@@ -447,6 +581,7 @@ function save() {
 }
 
 function reset() {
+  if (!confirm('恢复默认偏好？当前自定义设置将被清除。')) return;
   fetch('/api/prefs', { method: 'DELETE' })
     .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); location.reload(); })
     .catch(e => msg('恢复失败: ' + e.message, true));
@@ -493,6 +628,40 @@ function saveRuntime() {
   }).then(r => r.ok ? r.json() : r.json().then(j => Promise.reject(new Error(j.error || 'HTTP ' + r.status))))
     .then(d => { runtime = d; msg('代理池与 JS 桥设置已保存并立即生效'); })
     .catch(e => msg('保存失败: ' + e.message, true));
+}
+
+// 代理连通性测试：用表单中当前（未保存）的配置请求后端实测
+async function testProxy() {
+  const btn = $('proxyTestBtn');
+  const res = $('proxyTestResult');
+  const body = {
+    enabled: $('proxyEnabled').checked,
+    urls: $('proxyUrls').value.split('\n').map(s => s.trim()).filter(Boolean),
+    rotate: $('proxyRotate').value
+  };
+  btn.disabled = true;
+  res.textContent = '测试中…';
+  res.className = 't-wait';
+  try {
+    const r = await fetch('/api/runtime/test', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    const d = await r.json();
+    if (d.ok) {
+      res.textContent = '✓ 连通正常（' + d.time_ms + 'ms）';
+      res.className = 't-ok';
+    } else {
+      res.textContent = '✗ ' + (d.error || '连接失败') + '（' + d.time_ms + 'ms）';
+      res.className = 't-err';
+    }
+  } catch (e) {
+    res.textContent = '✗ 请求失败: ' + e.message;
+    res.className = 't-err';
+  } finally {
+    btn.disabled = false;
+  }
 }
 
 // ---- 自定义引擎 ----
@@ -564,9 +733,124 @@ function delCustom(id) {
     });
 }
 
+// 自定义引擎解析测试：用表单中当前配置 + 测试关键词请求后端预览
+async function testCustom() {
+  const box = $('cePreview');
+  const btn = $('ceTestBtn');
+  const query = $('ceTestQuery').value.trim();
+  if (!query) {
+    box.innerHTML = '<div class="pv-err">请输入测试关键词</div>';
+    return;
+  }
+  const config = {
+    id: $('ceId').value.trim(),
+    name: $('ceName').value.trim(),
+    category: $('ceCategory').value,
+    needs_js: $('ceJs').checked,
+    url_template: $('ceUrl').value.trim(),
+    result_selector: $('ceResult').value.trim(),
+    title_selector: $('ceTitle').value.trim(),
+    link_selector: $('ceLink').value.trim(),
+    snippet_selector: $('ceSnippet').value.trim(),
+  };
+  btn.disabled = true;
+  box.innerHTML = '<div class="pv-wait">解析中…</div>';
+  try {
+    const r = await fetch('/api/engines/custom/preview', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ config: config, query: query, max: 5 })
+    });
+    const d = await r.json();
+    if (!d.ok) {
+      box.innerHTML = '<div class="pv-err">' + esc(d.error || '测试失败') + '</div>';
+      return;
+    }
+    if (!d.results || !d.results.length) {
+      box.innerHTML = '<div class="pv-err">解析成功但无结果（检查选择器是否匹配页面结构）</div>';
+      return;
+    }
+    let html = '<div class="pv-head">✓ 解析出 ' + d.count + ' 条（' + d.time_ms + 'ms）</div>';
+    for (let i = 0; i < d.results.length; i++) {
+      const it = d.results[i];
+      html += '<div class="pv-item">' +
+        '<div><a href="' + esc(it.url) + '" target="_blank" rel="noopener noreferrer">' + esc(it.title) + '</a></div>' +
+        '<div class="pv-url">' + esc(it.url) + '</div>' +
+        (it.snippet ? '<div class="pv-snip">' + esc(it.snippet) + '</div>' : '') +
+        '</div>';
+    }
+    box.innerHTML = html;
+  } catch (e) {
+    box.innerHTML = '<div class="pv-err">请求失败: ' + esc(e.message) + '</div>';
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+// ===== 配置导入 / 导出 =====
+// 导出当前生效配置为 JSON 文件下载
+async function exportConfig() {
+  const m = $('msgConfig');
+  try {
+    const r = await fetch('/api/config/export');
+    const d = await r.json();
+    const blob = new Blob([JSON.stringify(d, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'educe-config-' + new Date().toISOString().slice(0, 10) + '.json';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    m.textContent = '已导出当前配置';
+    m.className = 'ok';
+  } catch (e) {
+    m.textContent = '导出失败: ' + e.message;
+    m.className = 'err';
+  }
+}
+
+// 导入配置：读取选中的 JSON 文件并 POST 到 /api/config/import
+async function importConfig() {
+  const m = $('msgConfig');
+  const file = $('configFile').files && $('configFile').files[0];
+  if (!file) { m.textContent = ''; return; }
+  try {
+    const text = await file.text();
+    let data;
+    try { data = JSON.parse(text); } catch (e) {
+      m.textContent = '文件不是有效 JSON: ' + e.message;
+      m.className = 'err';
+      return;
+    }
+    m.textContent = '导入中…';
+    m.className = '';
+    const r = await fetch('/api/config/import', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || ('HTTP ' + r.status));
+    m.textContent = d.message || '导入成功';
+    m.className = 'ok';
+    // 立即生效的部分（运行时 / 自定义引擎）刷新展示
+    loadRuntime();
+    loadCustom();
+    $('configFile').value = '';
+  } catch (e) {
+    m.textContent = '导入失败: ' + e.message;
+    m.className = 'err';
+  }
+}
+
 load();
 loadRuntime();
 loadCustom();
+
+// 文件选择后自动导入
+$('configFile').addEventListener('change', importConfig);
 
 </script>
 </body>

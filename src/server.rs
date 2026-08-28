@@ -10,20 +10,25 @@
 
 use std::convert::Infallible;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use axum::extract::{Path, Query, State};
 use axum::http::header::{COOKIE, SET_COOKIE};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{Html, IntoResponse, Response};
-use axum::routing::{delete, get};
+use axum::routing::{delete, get, post};
 use axum::{Json, Router};
 use futures::stream::{Stream, StreamExt};
+use serde::Deserialize;
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
+use tower_http::compression::CompressionLayer;
 
-use crate::config::AppConfig;
-use crate::custom::CustomEngineConfig;
+use crate::config::{AppConfig, ProxyConfig};
+use crate::custom::{CustomEngine, CustomEngineConfig};
+use crate::engines::Engine;
+use crate::http::HttpClient;
 use crate::models::{SearchQuery, SearchResponse};
 use crate::prefs::{extract_cookie, set_cookie_header, UserPrefs, PREFS_COOKIE, PREFS_MAX_AGE};
 use crate::runtime::RuntimeSettings;
@@ -60,9 +65,15 @@ pub async fn serve(cfg: Arc<AppConfig>) -> anyhow::Result<()> {
         )
         .route("/api/engines/custom", get(custom_list).post(custom_add))
         .route("/api/engines/custom/{id}", delete(custom_delete))
+        .route("/api/engines/custom/preview", post(custom_preview))
         .route("/api/runtime", get(runtime_get).post(runtime_post))
+        .route("/api/runtime/test", post(runtime_test))
+        .route("/api/config/export", get(config_export))
+        .route("/api/config/import", post(config_import))
         .route("/healthz", get(healthz))
-        .with_state(state);
+        .with_state(state)
+        // gzip 压缩（HTML / JSON / SSE：tower-http 自动跳过 text/event-stream）
+        .layer(CompressionLayer::new());
 
     let listener = tokio::net::TcpListener::bind(&addr)
         .await
@@ -178,22 +189,33 @@ async fn sources_handler(
     Json(st.agg.source_infos_with_prefs(&prefs))
 }
 
-async fn search_handler(
-    State(st): State<AppState>,
-    headers: HeaderMap,
-    Query(q): Query<SearchQuery>,
-) -> Response {
+/// 聚合搜索公共参数（普通接口与 SSE 流式接口共用，避免两处重复逻辑）。
+struct ResolvedSearch {
+    query: String,
+    sources: Option<Vec<String>>,
+    max: usize,
+    offset: usize,
+    prefs: UserPrefs,
+}
+
+/// 解析搜索参数：q 非空校验、源白名单（参数优先，否则偏好启用的引擎 + 全部自定义引擎）、
+/// max/offset 收敛。参数非法时返回错误响应。
+fn resolve_search_params(
+    st: &AppState,
+    headers: &HeaderMap,
+    q: &SearchQuery,
+) -> Result<ResolvedSearch, Response> {
     let query = q.q.trim().to_string();
     if query.is_empty() {
-        return (
+        return Err((
             StatusCode::BAD_REQUEST,
             Json(serde_json::json!({"error": "参数 q 不能为空"})),
         )
-            .into_response();
+            .into_response());
     }
 
     // 用户偏好（cookie）
-    let prefs = current_prefs(&st.cfg, &headers);
+    let prefs = current_prefs(&st.cfg, headers);
 
     // 源白名单：查询参数优先，否则用偏好中启用的引擎（并补上全部自定义引擎）
     let sources: Option<Vec<String>> = match q.sources.as_ref() {
@@ -216,9 +238,28 @@ async fn search_handler(
         .clamp(1, st.cfg.search.max_results.max(1));
     let offset = q.offset.unwrap_or(0);
 
+    Ok(ResolvedSearch {
+        query,
+        sources,
+        max,
+        offset,
+        prefs,
+    })
+}
+
+async fn search_handler(
+    State(st): State<AppState>,
+    headers: HeaderMap,
+    Query(q): Query<SearchQuery>,
+) -> Response {
+    let r = match resolve_search_params(&st, &headers, &q) {
+        Ok(r) => r,
+        Err(resp) => return resp,
+    };
+
     let resp: SearchResponse = st
         .agg
-        .search(&query, sources.as_deref(), offset, max, Some(&prefs))
+        .search(&r.query, r.sources.as_deref(), r.offset, r.max, Some(&r.prefs))
         .await;
     Json(resp).into_response()
 }
@@ -230,41 +271,17 @@ async fn search_stream_handler(
     headers: HeaderMap,
     Query(q): Query<SearchQuery>,
 ) -> Response {
-    let query = q.q.trim().to_string();
-    if query.is_empty() {
-        return (
-            StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({"error": "参数 q 不能为空"})),
-        )
-            .into_response();
-    }
-
-    let prefs = current_prefs(&st.cfg, &headers);
-    let sources: Option<Vec<String>> = match q.sources.as_ref() {
-        Some(s) if !s.trim().is_empty() => Some(
-            s.split(',')
-                .map(|x| x.trim().to_string())
-                .filter(|x| !x.is_empty())
-                .collect(),
-        ),
-        _ => {
-            let mut ids = prefs.enabled_engine_ids();
-            ids.extend(st.agg.custom_engine_ids());
-            Some(ids)
-        }
+    let r = match resolve_search_params(&st, &headers, &q) {
+        Ok(r) => r,
+        Err(resp) => return resp,
     };
-    let max = q
-        .max
-        .unwrap_or(prefs.results_per_page)
-        .clamp(1, st.cfg.search.max_results.max(1));
-    let offset = q.offset.unwrap_or(0);
 
     let (tx, rx) = mpsc::channel::<StreamEvent>(16);
     let agg = st.agg.clone();
     // 后台执行聚合搜索，事件经 channel 推给 SSE 流
     tokio::spawn(async move {
         let _ = agg
-            .search_stream(&query, sources.as_deref(), offset, max, Some(&prefs), tx)
+            .search_stream(&r.query, r.sources.as_deref(), r.offset, r.max, Some(&r.prefs), tx)
             .await;
     });
 
@@ -291,4 +308,231 @@ async fn suggest_handler(State(st): State<AppState>, Query(q): Query<SearchQuery
     }
     let suggestions = st.agg.suggest(&query).await;
     Json(serde_json::json!({"query": query, "suggestions": suggestions})).into_response()
+}
+
+// ---- 可视化操作辅助接口（设置页）----
+
+/// 代理连通性测试请求体：携带设置页**尚未保存**的代理配置与探测目标。
+#[derive(Deserialize)]
+struct ProxyTestRequest {
+    enabled: bool,
+    urls: Vec<String>,
+    rotate: String,
+    /// 探测目标 URL，缺省用百度（国内可达性参照）
+    #[serde(default)]
+    probe: Option<String>,
+}
+
+/// `POST /api/runtime/test`：用给定的代理配置实测连通性（不保存、不影响现有客户端）。
+async fn runtime_test(Json(req): Json<ProxyTestRequest>) -> Response {
+    let pc = ProxyConfig {
+        enabled: req.enabled,
+        urls: req.urls,
+        rotate: req.rotate,
+    };
+    let client = match HttpClient::new(&pc) {
+        Ok(c) => c,
+        Err(e) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({"ok": false, "error": format!("构建客户端失败: {e}")})),
+            )
+                .into_response();
+        }
+    };
+    let probe = req.probe.unwrap_or_else(|| "https://www.baidu.com".to_string());
+    let t0 = Instant::now();
+    let result =
+        tokio::time::timeout(Duration::from_secs(8), client.get_text("_probe", &probe)).await;
+    let time_ms = t0.elapsed().as_millis() as u64;
+    match result {
+        Ok(Ok(_)) => Json(serde_json::json!({"ok": true, "time_ms": time_ms, "url": probe}))
+            .into_response(),
+        Ok(Err(e)) => Json(serde_json::json!({
+            "ok": false,
+            "time_ms": time_ms,
+            "error": e.to_string(),
+            "url": probe,
+        }))
+        .into_response(),
+        Err(_) => Json(serde_json::json!({
+            "ok": false,
+            "time_ms": time_ms,
+            "error": "探测超时（8s）",
+            "url": probe,
+        }))
+        .into_response(),
+    }
+}
+
+/// 自定义引擎预览请求体：设置页填写的配置 + 测试关键词。
+#[derive(Deserialize)]
+struct CustomPreviewRequest {
+    config: CustomEngineConfig,
+    query: String,
+    #[serde(default)]
+    max: Option<usize>,
+}
+
+/// `POST /api/engines/custom/preview`：用给定配置临时执行一次搜索并返回解析结果预览（不保存）。
+async fn custom_preview(
+    State(st): State<AppState>,
+    Json(req): Json<CustomPreviewRequest>,
+) -> Response {
+    let query = req.query.trim().to_string();
+    if query.is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"ok": false, "error": "测试关键词不能为空"})),
+        )
+            .into_response();
+    }
+    let engine = match CustomEngine::new(req.config.clone()) {
+        Ok(e) => e,
+        Err(msg) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({"ok": false, "error": msg})),
+            )
+                .into_response();
+        }
+    };
+    let ctx = st.agg.engine_context();
+    let max = req.max.unwrap_or(5).clamp(1, 20);
+    let t0 = Instant::now();
+    let result = tokio::time::timeout(Duration::from_secs(15), engine.search(&ctx, &query, max))
+        .await;
+    let time_ms = t0.elapsed().as_millis() as u64;
+    match result {
+        Ok(Ok(results)) => {
+            let items: Vec<serde_json::Value> = results
+                .iter()
+                .map(|r| {
+                    serde_json::json!({
+                        "title": r.title,
+                        "url": r.url,
+                        "snippet": r.snippet,
+                    })
+                })
+                .collect();
+            Json(serde_json::json!({
+                "ok": true,
+                "time_ms": time_ms,
+                "count": items.len(),
+                "results": items,
+            }))
+            .into_response()
+        }
+        Ok(Err(e)) => Json(serde_json::json!({
+            "ok": false,
+            "time_ms": time_ms,
+            "error": e.to_string(),
+        }))
+        .into_response(),
+        Err(_) => Json(serde_json::json!({
+            "ok": false,
+            "time_ms": time_ms,
+            "error": "预览超时（15s）",
+        }))
+        .into_response(),
+    }
+}
+
+/// `GET /api/config/export`：导出当前生效配置（静态 config + 运行时 runtime + 自定义引擎），供下载备份。
+async fn config_export(State(st): State<AppState>) -> Json<serde_json::Value> {
+    Json(serde_json::json!({
+        "version": env!("CARGO_PKG_VERSION"),
+        "config": st.cfg.as_ref(),
+        "runtime": st.agg.runtime_settings(),
+        "custom_engines": st.agg.custom_engines(),
+    }))
+}
+
+/// 配置导入请求体：与导出结构一致，各段可缺省（只导入存在的部分）。
+#[derive(Deserialize)]
+struct ConfigImportRequest {
+    #[serde(default)]
+    config: Option<AppConfig>,
+    #[serde(default)]
+    runtime: Option<RuntimeSettings>,
+    #[serde(default)]
+    custom_engines: Option<Vec<CustomEngineConfig>>,
+}
+
+/// `POST /api/config/import`：导入配置。
+/// - 运行时部分（代理池 / JS 桥）**立即生效**并持久化 runtime.toml
+/// - 静态部分写入 `config.toml`（原文件备份为 `config.toml.bak`），重启后完全生效
+/// - 自定义引擎立即加载并持久化 custom_engines.json
+async fn config_import(
+    State(st): State<AppState>,
+    Json(req): Json<ConfigImportRequest>,
+) -> Response {
+    if req.config.is_none() && req.runtime.is_none() && req.custom_engines.is_none() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"ok": false, "error": "导入内容为空"})),
+        )
+            .into_response();
+    }
+
+    // 1) 运行时设置：立即生效
+    if let Some(rs) = &req.runtime {
+        if let Err(msg) = st.agg.apply_runtime(rs) {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({"ok": false, "error": format!("运行时设置应用失败: {msg}")})),
+            )
+                .into_response();
+        }
+    }
+
+    // 2) 静态配置：写入 config.toml（备份原文件）
+    if let Some(cfg) = &req.config {
+        let toml_text = match toml::to_string(cfg) {
+            Ok(t) => t,
+            Err(e) => {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(serde_json::json!({"ok": false, "error": format!("配置序列化失败: {e}")})),
+                )
+                    .into_response();
+            }
+        };
+        let cfg_path = std::path::Path::new("config.toml");
+        if cfg_path.exists() {
+            let _ = std::fs::copy(cfg_path, "config.toml.bak");
+        }
+        if let Err(e) = std::fs::write(cfg_path, toml_text) {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({"ok": false, "error": format!("写入 config.toml 失败: {e}")})),
+            )
+                .into_response();
+        }
+    }
+
+    // 3) 自定义引擎：逐个校验并 upsert（持久化 custom_engines.json）
+    let mut imported = 0usize;
+    if let Some(list) = &req.custom_engines {
+        for c in list {
+            if let Err(msg) = st.agg.add_custom_engine(c) {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(serde_json::json!({"ok": false, "error": format!("自定义引擎 `{}` 无效: {msg}", c.id)})),
+                )
+                    .into_response();
+            }
+            imported += 1;
+        }
+    }
+
+    Json(serde_json::json!({
+        "ok": true,
+        "message": format!(
+            "导入成功：运行时设置已立即生效{}；静态配置已写入 config.toml（原文件备份为 config.toml.bak，重启后完全生效）；自定义引擎 {} 个",
+            if req.runtime.is_some() { "" } else { "（未提供）" },
+            imported,
+        ),
+    }))
+    .into_response()
 }

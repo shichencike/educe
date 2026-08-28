@@ -8,12 +8,12 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use anyhow::{Context, Result};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 /// 默认配置文件的完整内容（gen-config 命令输出用）。
 pub const DEFAULT_CONFIG_TOML: &str = include_str!("../config.example.toml");
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(default)]
 pub struct ServerConfig {
     pub host: String,
@@ -29,7 +29,7 @@ impl Default for ServerConfig {
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(default)]
 pub struct SearchConfig {
     /// 每源最多返回结果数
@@ -57,7 +57,7 @@ impl Default for SearchConfig {
 }
 
 /// 聚合结果 TTL 缓存。
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(default)]
 pub struct CacheConfig {
     /// 是否启用缓存
@@ -78,7 +78,7 @@ impl Default for CacheConfig {
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(default)]
 pub struct ProxyConfig {
     pub enabled: bool,
@@ -98,7 +98,7 @@ impl Default for ProxyConfig {
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(default)]
 pub struct JsRenderConfig {
     pub enabled: bool,
@@ -120,14 +120,14 @@ impl Default for JsRenderConfig {
     }
 }
 
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(default)]
 pub struct EnginesConfig {
     /// 启用白名单；空 = 全部启用
     pub enabled: Vec<String>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(default)]
 pub struct LoggingConfig {
     pub level: String,
@@ -141,7 +141,7 @@ impl Default for LoggingConfig {
     }
 }
 
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(default)]
 pub struct AppConfig {
     pub server: ServerConfig,

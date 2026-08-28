@@ -97,11 +97,23 @@ impl RateLimiter {
             let wait = {
                 let mut buckets = self.buckets.lock().unwrap();
                 let now = Instant::now();
-                let b = buckets.entry(engine.to_string()).or_insert_with(|| Bucket {
-                    per_min: u32::MAX,
-                    tokens: f64::MAX,
-                    last: now,
-                });
+                // 已注册的引擎直接命中桶；未注册的首次插入默认桶（不限速）。
+                // 用 get_mut 优先命中，避免每次 acquire 都为键构造 String
+                // （引擎在启动/运行时已全部 set_limit 预注册，热路径零分配）。
+                let b = match buckets.get_mut(engine) {
+                    Some(b) => b,
+                    None => {
+                        buckets.insert(
+                            engine.to_string(),
+                            Bucket {
+                                per_min: u32::MAX,
+                                tokens: f64::MAX,
+                                last: now,
+                            },
+                        );
+                        buckets.get_mut(engine).unwrap()
+                    }
+                };
                 if b.per_min == 0 {
                     None // 不限速
                 } else {
